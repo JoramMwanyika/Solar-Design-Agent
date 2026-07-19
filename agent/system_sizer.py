@@ -362,58 +362,88 @@ def size_system(
 
 
 def format_sizing_summary(result: SizingResult) -> str:
-    """Formats SizingResult into an executive engineering report table."""
+    """Formats SizingResult into an executive engineering report table matching standard design sheets."""
     d = result.to_dict()
     sizing_basis_note = "⚡ **Apparent Power (S)** used for Hybrid/Off-Grid Inverter sizing" if result.system_type in ("off-grid", "hybrid") else "🌐 **Active Power (P)** used for Grid-Tied Inverter sizing"
+    
     lines = [
         f"## ☀️ System Sizing Report ({result.system_type.upper()})",
         f"**Location:** {result.location} (Peak Sun Hours: `{result.peak_sun_hours} h/day`)",
         f"*{sizing_basis_note} per engineering standards.*",
         "",
-        "### ⚡ Load Demand & Energy Requirement",
-        "| Metric | Calculated Value | Engineering Note |",
+        "### ⚡ 1. Proposed DC Capacity & Inverter Sizing",
+        "| Parameter / Metric | Specification | Formula / Engineering Rule |",
         "|---|---|---|",
-        f"| **Peak Active Power Demand (P)** | `{result.total_peak_power_w:,.1f} W` (`{result.total_peak_power_w/1000:,.2f} kW`) | Real power rating of connected loads |",
-        f"| **Peak Apparent Power Demand (S)** | `{result.total_peak_va:,.1f} VA` (`{result.total_peak_va/1000:,.2f} kVA`) | Total kVA required including power factor |",
-        f"| **Daily Energy Consumption** | `{d['daily_energy_kwh']} kWh/day` | Base load schedule demand |",
-        f"| **Design Target Energy** | `{d['design_energy_kwh']} kWh/day` | Includes system losses & performance ratio |",
+        f"| **Proposed DC Capacity** | `{result.total_pv_kwp:.2f} kWp` | Based on target daily energy & peak sun hours |",
+        f"| **Selected Module Rating** | `{result.panel_wp} Wp` (`{result.panel_wp/1000:.3f} kWp`) | High-efficiency monocrystalline PV module |",
+        f"| **Total PV Modules Required** | `{result.panel_qty} pcs` | Rule: `ceil({result.total_pv_kwp:.2f} / {result.panel_wp/1000:.3f})` |",
+        f"| **Proposed Inverter Size** | `{result.inverter_kw:.1f} kW` (`{result.inverter_kva:.1f} kVA`) | Sized with `1.25x` safety factor |",
+        f"| **No. of Inverters** | `{result.inverter_qty} pcs` | Total AC Capacity: `{result.inverter_kw * result.inverter_qty:.1f} kW` |",
         "",
-        "### 🔆 Solar PV Array & Stringing Design",
-        "| Metric | Specification | Formula / Reference |",
+        "### 🔗 2. Stringing & MPPT Configuration",
+        "| Parameter | Specification | Calculation / Reference |",
         "|---|---|---|",
-        f"| **PV Module Rating** | `{result.panel_wp} Wp` | High-efficiency monocrystalline |",
-        f"| **Total PV Modules Required** | `{result.panel_qty} Pcs` | Rule: `ceil({result.total_pv_kwp:.2f} kWp / {result.panel_wp/1000:.3f} kWp per module)` |",
-        f"| **Stringing Configuration** | `{result.stringing.total_strings} Strings` of `{result.stringing.panels_per_mppt // 2} modules` | Max voltage limit: `{result.stringing.max_panels_per_string} panels/string` |",
-        f"| **Operating String Voltage** | `{result.stringing.string_voltage_v:.1f} V DC` | Well within inverter MPPT range |",
-        "",
-        "### 🔌 Inverter & Power Conversion",
-        "| Metric | Specification | Note |",
-        "|---|---|---|",
-        f"| **Inverter Capacity** | `{result.inverter_kw:.1f} kW` (`{result.inverter_kva:.1f} kVA`) | On-Grid / Hybrid Solar Inverter |",
-        f"| **Quantity** | `{result.inverter_qty} Pcs` | 3-Phase / 1-Phase configuration |",
+        f"| **Max Inverter DC Input ($V_{{in,max}}$)** | `1000 V` | Maximum allowable inverter input voltage |",
+        f"| **Panel Open Circuit Voltage ($V_{{oc}}$)** | `49.28 V` (or spec) | Standard module $V_{{oc}}$ at STC |",
+        f"| **Max Panels in a String** | `{result.stringing.max_panels_per_string} pcs` | Formula: `floor(Vin_max / (Voc * (1 + K*(Tmin - 25°C))))` |",
+        f"| **Panels per MPPT** | `{result.stringing.panels_per_mppt} panels` | Based on max input power per MPPT (`16.25 kW`) |",
+        f"| **Total Number of Strings** | `{result.stringing.total_strings} strings` | Recommended stringing distribution |",
+        f"| **Operating String Voltage** | `{result.stringing.string_voltage_v:.1f} V DC` | Optimal MPPT tracking window |",
     ]
 
-    if result.system_type in ("off-grid", "hybrid") and result.battery_qty > 0:
+    if result.system_type in ("off-grid", "hybrid"):
         lines += [
             "",
-            "### 🔋 Battery Energy Storage System (BESS)",
-            "| Metric | Specification | Engineering Note |",
+            "### 🔋 3. Battery System Design (BESS)",
+            "| Parameter | Specification | Engineering Rule / Note |",
             "|---|---|---|",
-            f"| **Battery Module** | `{result.battery_type}` | `{result.battery_module_kwh} kWh / module` |",
-            f"| **Total Battery Modules** | `{result.battery_qty} Pcs` | **{result.total_storage_kwh:.2f} kWh total BESS** (Includes `1.25x` factor) |",
-            f"| **Racks / Stacks** | `{result.battery_stacks} Stack(s)` | Up to 9 modules per stack |",
-            f"| **Battery Breaker Rating** | `{result.battery_breaker_a:.1f} A` | Sized at 1.25x max charge/discharge current |",
+            f"| **Needed BESS (Base + Buffer)** | `{result.total_storage_kwh:.3f} kWh` | Formula: `[(Daily Energy * Autonomy) / DoD] * 1.25` |",
+            f"| **Selected Battery Module** | `{result.battery_type}` | `{result.battery_module_kwh} kWh / HV module` |",
+            f"| **No. of Battery Modules** | `{result.battery_qty} pcs` | Rule: `ceil({result.total_storage_kwh:.2f} / {result.battery_module_kwh})` |",
+            f"| **No. of Battery Racks / Stacks** | `{result.battery_stacks} Stack(s) of up to 9` | Vertical rack configuration (`ceil(modules / 9)`) |",
+            f"| **Actual Connected BESS** | `{result.battery_qty * result.battery_module_kwh:.3f} kWh` | Total installed usable storage |",
+            "",
+            "### 🛡️ 4. Battery Protection & Cabling",
+            "| Component | Specification | Note / Rating |",
+            "|---|---|---|",
+            f"| **Max Charge/Discharge Current** | `{result.battery_breaker_a / 1.25:.1f} A` | Peak continuous operational current |",
+            f"| **Battery Breaker Rating** | `{result.battery_breaker_a:.1f} A` (`160A` frame available) | Rule: `1.25 * Max Charge/Discharge Current` at `1000Vdc` |",
+            "| **Battery Cable (Tower to Breaker)** | `50 mm²` CU/PVC/PVC-Nitrile | Main battery riser (`300/500Vdc` rating) |",
+            "| **Battery Cable (Breaker to Inverter)** | `16 mm²` CU/PVC/PVC-Nitrile | 4 Runs for two battery inputs |",
         ]
+
+    lines += [
+        "",
+        "### ⚡ 5. Earthing & Lightning Protection System (LPS)",
+        "| Circuit / Connection | Cable Specification | Estimated Length / Note |",
+        "|---|---|---|",
+        "| **Inverter to PVDB** | `16 mm²` CU/PVC (`450/750V`) | `15 m` run |",
+        "| **PVDB to Main Earth Bar** | `16 mm²` CU/PVC (`450/750V`) | `40 m` run |",
+        "| **PV Rail to Rail Bonding** | `6 mm²` CU/PVC (`450/750V`) | Inter-module structure bonding |",
+        "| **Roof / Structure to PVDB** | `16 mm²` CU/PVC (`450/750V`) | `60 m` run |",
+        "| **Roof / Structure to Earthpit** | `16 mm²` CU/PVC (`450/750V`) | `15 m` direct earth run |",
+        "| **Battery Tower to PVDB** | `16 mm²` CU/PVC (`450/750V`) | `5 m` run |",
+        "| **LPS (Lightning Protection)** | **Copper Tape** | `135 m` perimeter & down conductor |",
+    ]
 
     if result.cable_sizing:
         cs = result.cable_sizing
         lines += [
             "",
-            "### 🛠️ DC & AC Cable Sizing & Protection",
+            "### 🛠️ 6. DC String & AC Feeder Cable Sizing",
             "| Circuit | Cable Specification | Voltage Drop Check | Breaker / Protection |",
             "|---|---|---|---|",
-            f"| **PV DC String Cable** | `{cs.dc_recommended_cable_sqmm} mm²` CU/XLPE (`{cs.dc_total_length_m:.0f}m total`) | Allowable: `{cs.dc_allowable_vd_v}V` | 1000V DC Isolator & Type II SPD |",
-            f"| **AC Main Feeder Cable** | `4-core {cs.ac_cable_area_sqmm} mm²` CU/XLPE/PVC (`{cs.ac_distance_m:.0f}m`) | Actual V.D: `{cs.ac_voltage_drop_pct}%` (`{cs.ac_voltage_drop_v}V`) | Main Breaker: `{cs.ac_breaker_rating_a:.0f} A` |",
+            f"| **PV DC String Cable** | `{cs.dc_recommended_cable_sqmm} mm²` TCU/XLPO (`1.5/1.5kVdc`) | Formula: `I*rho*2L / VD` (Total length: `{cs.dc_total_length_m:.0f} m`) | 1000V DC Isolator & Type II SPD |",
+            f"| **AC Main Feeder Cable** | `1 run of 4-core {cs.ac_cable_area_sqmm} mm²` CU/XLPE/PVC (`{cs.ac_distance_m:.0f} m`) | V.D Check: `{cs.ac_voltage_drop_pct}%` (`{cs.ac_voltage_drop_v}V`) vs Allowable `20.75V` | AC Board Breaker: `{cs.ac_breaker_rating_a:.1f} A` |",
         ]
+
+    lines += [
+        "",
+        "---",
+        "### 📎 **CRITICAL NEXT STEP: Technical Datasheet Verification Required**",
+        "> [!IMPORTANT]",
+        "> **Please provide / upload the technical datasheets and manuals of the selected Inverter and Battery.**",
+        "> To proceed with verifying exact MPPT voltage windows, DC charge controller limits, BMS CAN/RS485 communication protocols, and generating the final Bill of Quantities (BOQ), upload the manufacturer datasheets (`PDF`, `DOCX`, `Excel`, or `PNG/JPG image`) right here in the chat!"
+    ]
 
     return "\n".join(lines)
