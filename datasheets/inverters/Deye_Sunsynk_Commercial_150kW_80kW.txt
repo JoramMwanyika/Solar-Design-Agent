@@ -1,0 +1,10 @@
+Deye / Sunsynk Commercial High Voltage Hybrid & Grid-Tied Inverter Datasheet
+Standard Commercial Sizes: 80 kW, 100 kW, 150 kW
+Max DC Input Voltage (Vin,max): 1000 V
+MPPT Operating Voltage Range: 200 V - 850 V
+Full Load MPPT Range: 500 V - 850 V
+Number of MPPT Inputs: 6 to 12 MPPTs
+Max Short Circuit Current per MPPT: 40 A
+Nominal AC Output Voltage: 400V 3-Phase + N (50/60 Hz)
+Inverter Efficiency (Peak): 98.6%
+Safety & Standards: IEC 62109-1/2, EN 50549

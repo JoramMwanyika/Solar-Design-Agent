@@ -1,0 +1,11 @@
+Jinko Tiger Neo N-Type 625W Monocrystalline PV Module Datasheet
+Rated Maximum Power (Pmax): 625 Wp
+Open Circuit Voltage (Voc): 49.28 V
+Short Circuit Current (Isc): 15.90 A
+Maximum Power Voltage (Vmp): 41.52 V
+Maximum Power Current (Imp): 15.05 A
+Module Efficiency: 22.36%
+Temperature Coefficient of Voc (K): -0.25 %/°C
+Maximum System Voltage: 1500V DC
+Dimensions: 2382 x 1134 x 30 mm
+Weight: 33.5 kg

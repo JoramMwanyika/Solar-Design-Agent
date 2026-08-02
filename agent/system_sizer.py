@@ -111,6 +111,10 @@ class SizingResult:
     # Cable & Protection Sizing
     cable_sizing: Optional[CableSizingResult] = None
 
+    @property
+    def usable_storage_kwh(self) -> float:
+        return round(self.total_storage_kwh * self.dod, 2)
+
     def to_dict(self) -> dict:
         return {
             "system_type": self.system_type,
@@ -153,7 +157,7 @@ class SizingResult:
 
 # Lookup for Peak Sun Hours based on region/country keywords
 PSH_TABLE = {
-    "kenya": 5.5, "nairobi": 5.2, "mombasa": 6.0, "kisumu": 5.8,
+    "kenya": 5.5, "nairobi": 3.458, "mombasa": 6.0, "kisumu": 5.8,
     "tanzania": 5.6, "dar es salaam": 5.5, "dodoma": 5.8,
     "uganda": 5.3, "kampala": 5.1,
     "nigeria": 5.2, "lagos": 4.8, "abuja": 5.5,
@@ -201,24 +205,91 @@ def size_system(
     is_logged_data = len(loads) > 0 and any(l.is_time_series for l in loads)
     
     if is_logged_data:
-        # Time-Series / Meter Logged Data: Peak is MAX across logged intervals, Daily Energy is Average * 24h
-        total_peak_w = max(l.total_wattage for l in loads) if loads else 0.0
-        total_peak_va = max(l.total_va for l in loads) if loads else 0.0
-        avg_w = sum(l.total_wattage for l in loads) / len(loads) if loads else 0.0
-        daily_energy_wh = avg_w * 24.0
+        import dateutil.parser
+        
+        # 1. Group by day
+        days_data = {}
+        for l in loads:
+            try:
+                dt = dateutil.parser.parse(l.name, fuzzy=True)
+                date_str = dt.date().isoformat()
+                dow = dt.weekday() # 0 is Monday, 6 is Sunday
+            except Exception:
+                date_str = "unknown"
+                dow = 0
+            
+            # Filter weekends by default to match multiagent logic
+            if dow < 5:
+                if date_str not in days_data:
+                    days_data[date_str] = []
+                days_data[date_str].append(l)
+        
+        # Remove "unknown" if there are valid days
+        if len(days_data) > 1 and "unknown" in days_data:
+            del days_data["unknown"]
+            
+        # 2. Determine interval duration (seconds & minutes) from timestamp difference or row count
+        interval_seconds = 3600.0 # fallback: 1 hour
+        for d_str, d_loads in days_data.items():
+            if d_str != "unknown" and len(d_loads) >= 2:
+                try:
+                    dt1 = dateutil.parser.parse(d_loads[0].name, fuzzy=True)
+                    dt2 = dateutil.parser.parse(d_loads[1].name, fuzzy=True)
+                    diff_sec = abs((dt2 - dt1).total_seconds())
+                    if 1.0 <= diff_sec <= 7200.0:
+                        interval_seconds = diff_sec
+                        break
+                except Exception:
+                    pass
+
+        if interval_seconds == 3600.0:
+            for d_str, d_loads in days_data.items():
+                if len(d_loads) > 5:
+                    calc_sec = 86400.0 / len(d_loads)
+                    if 1.0 <= calc_sec <= 7200.0:
+                        interval_seconds = calc_sec
+                        break
+
+        interval_minutes = interval_seconds / 60.0
+        delta_t_hours = interval_seconds / 3600.0 # (interval_minutes / 60.0)
+
+        # 3. Sum data for each day, compare days, and select day with MAXIMUM total power sum
+        max_power_sum = -1.0
+        max_energy = -1.0
+        best_day_loads = []
+        for d_str, d_loads in days_data.items():
+            if d_str == "unknown":
+                p_sum = sum(l.total_wattage for l in d_loads)
+                day_energy = (p_sum / len(d_loads)) * 24.0 if d_loads else 0.0
+            else:
+                p_sum = sum(l.total_wattage for l in d_loads)
+                day_energy = p_sum * delta_t_hours
+                
+            if p_sum > max_power_sum:
+                max_power_sum = p_sum
+                max_energy = day_energy
+                best_day_loads = d_loads
+                
+        if not best_day_loads:
+            best_day_loads = loads
+            max_energy = (sum(l.total_wattage for l in loads) / max(1, len(loads))) * 24.0
+            
+        total_peak_w = max((l.total_wattage for l in best_day_loads), default=0.0)
+        total_peak_va = max((l.total_va for l in best_day_loads), default=0.0)
+        daily_energy_wh = max_energy
     else:
         # Standard Appliance Schedule: Peak is SUM of all connected items, Daily Energy is SUM(item * hours)
         total_peak_w = sum(l.total_wattage for l in loads)
         total_peak_va = sum(l.total_va for l in loads)
         daily_energy_wh = sum(l.daily_energy_wh for l in loads)
     
-    # Performance ratio (system efficiency: 0.78 for off-grid/hybrid, 0.82 for grid-tied)
-    pr = 0.78 if system_type in ("off-grid", "hybrid") else 0.82
-    design_energy_wh = daily_energy_wh / pr
+    # Direct Sizing: No losses included per explicit user directive (Simply Energy / Peak Sun Hours)
+    pr = 1.0
+    design_energy_wh = daily_energy_wh
     
     # 2. PV Array Sizing
     if daily_energy_wh > 0:
-        required_pv_kwp = (design_energy_wh / psh) / 1000.0
+        required_pv_kwp = (daily_energy_wh / psh) / 1000.0
     else:
         required_pv_kwp = max(5.0, total_peak_w * 1.2 / 1000.0)
         
@@ -258,11 +329,44 @@ def size_system(
         peak_demand_kunit = (total_peak_w * 1.25) / 1000.0  # Active Power P + 25% safety margin
 
     inverter_kw = max(total_pv_kwp, peak_demand_kunit)
-    # Round to standard inverter sizes (e.g. 3, 5, 8, 10, 12, 15, 20, 30, 50, 100 kW)
-    std_sizes = [3, 5, 8, 10, 12, 15, 20, 30, 50, 100]
-    inverter_kw_std = next((s for s in std_sizes if s >= inverter_kw), math.ceil(inverter_kw / 10) * 10)
+    
+    # Realistic Inverter Selection:
+    # Prioritizes large commercial/industrial inverters (80kW, 100kW, 150kW) for large systems (>50 kW)
+    if inverter_kw > 50:
+        large_sizes = [150, 100, 80]
+        best_size = 150
+        best_qty = math.ceil(inverter_kw / 150)
+        for s in large_sizes:
+            qty = math.ceil(inverter_kw / s)
+            if qty < best_qty or (qty == best_qty and s > best_size):
+                best_size = s
+                best_qty = qty
+    elif inverter_kw >= 20:
+        med_sizes = [50, 30, 20, 15]
+        best_size = 50
+        best_qty = math.ceil(inverter_kw / 50)
+        for s in med_sizes:
+            qty = math.ceil(inverter_kw / s)
+            if qty <= 3:
+                best_size = s
+                best_qty = qty
+                break
+    else:
+        res_sizes = [3, 5, 8, 10, 12, 15]
+        best_size = 15
+        best_qty = 1
+        for s in res_sizes:
+            if s >= inverter_kw:
+                best_size = s
+                best_qty = 1
+                break
+        if inverter_kw > 15:
+            best_size = 15
+            best_qty = math.ceil(inverter_kw / 15)
+            
+    inverter_kw_std = float(best_size)
+    inverter_qty = int(best_qty)
     inverter_kva = inverter_kw_std if system_type in ("off-grid", "hybrid") else inverter_kw_std / 0.9
-    inverter_qty = 1 if inverter_kw_std <= 50 else math.ceil(inverter_kw_std / 50)
     
     # 5. Battery Sizing (Off-Grid / Hybrid)
     battery_qty = 0
@@ -366,10 +470,20 @@ def format_sizing_summary(result: SizingResult) -> str:
     d = result.to_dict()
     sizing_basis_note = "⚡ **Apparent Power (S)** used for Hybrid/Off-Grid Inverter sizing" if result.system_type in ("off-grid", "hybrid") else "🌐 **Active Power (P)** used for Grid-Tied Inverter sizing"
     
+    daily_kwh = result.daily_energy_wh / 1000.0
+    req_kwp = daily_kwh / max(0.1, result.peak_sun_hours)
+    
     lines = [
         f"## ☀️ System Sizing Report ({result.system_type.upper()})",
         f"**Location:** {result.location} (Peak Sun Hours: `{result.peak_sun_hours} h/day`)",
         f"*{sizing_basis_note} per engineering standards.*",
+        "",
+        "### 📐 Step-by-Step Mathematical Calculation Breakdown",
+        f"1. **Daily Energy Demand ($E_{{daily}}$):** `{daily_kwh:,.2f} kWh/day`",
+        f"2. **Peak Sun Hours (PSH):** `{result.peak_sun_hours} h/day`",
+        f"3. **Required DC Solar Capacity ($P_{{DC}}$):** `Daily Energy ÷ PSH = {daily_kwh:,.2f} ÷ {result.peak_sun_hours} = {req_kwp:,.2f} kWp`",
+        f"4. **PV Modules Required ({result.panel_wp}Wp):** `ceil({req_kwp:,.2f} ÷ {result.panel_wp/1000:.3f}) = {result.panel_qty} modules`",
+        f"5. **Total Installed Solar Capacity:** `{result.panel_qty} modules × {result.panel_wp/1000:.3f} kW = {result.total_pv_kwp:.2f} kWp`",
         "",
         "### ⚡ 1. Proposed DC Capacity & Inverter Sizing",
         "| Parameter / Metric | Specification | Formula / Engineering Rule |",
@@ -436,6 +550,20 @@ def format_sizing_summary(result: SizingResult) -> str:
             f"| **PV DC String Cable** | `{cs.dc_recommended_cable_sqmm} mm²` TCU/XLPO (`1.5/1.5kVdc`) | Formula: `I*rho*2L / VD` (Total length: `{cs.dc_total_length_m:.0f} m`) | 1000V DC Isolator & Type II SPD |",
             f"| **AC Main Feeder Cable** | `1 run of 4-core {cs.ac_cable_area_sqmm} mm²` CU/XLPE/PVC (`{cs.ac_distance_m:.0f} m`) | V.D Check: `{cs.ac_voltage_drop_pct}%` (`{cs.ac_voltage_drop_v}V`) vs Allowable `20.75V` | AC Board Breaker: `{cs.ac_breaker_rating_a:.1f} A` |",
         ]
+
+    lines += [
+        "",
+        "### 💡 Detailed Engineering Rationale & Selection Justification",
+        f"1. **PV Array Sizing Rationale:** Based on `{daily_kwh:,.2f} kWh/day` demand and `{result.peak_sun_hours} h/day` solar insolation, the required peak capacity is `{req_kwp:,.2f} kWp` (Formula: `Daily Energy ÷ PSH`). High-efficiency `{result.panel_wp}Wp` N-Type monocrystalline modules (22.36% efficiency) were selected to maximize power output per square meter and reduce racking labor.",
+        f"2. **Inverter Selection Rationale:** Standard commercial/industrial inverter size `{result.inverter_kw:.1f} kW` (`{result.inverter_kva:.1f} kVA`) was selected to maintain a low unit count and keep electrical busbar connections clean. `{result.inverter_qty} pc(s)` provide total AC capacity of `{result.inverter_kw * result.inverter_qty:.1f} kW`, ensuring a `1.25x` safety factor over peak demand.",
+    ]
+    if result.system_type in ("off-grid", "hybrid"):
+        lines += [
+            f"3. **Battery Storage (BESS) Rationale:** Total storage required is `{result.total_storage_kwh:.2f} kWh` based on `{result.days_of_autonomy} day(s)` autonomy at `{int(result.dod*100)}%` Depth of Discharge with a `1.25x` aging buffer. High-voltage LiFePO4 modules (`{result.battery_type}`) were selected for 6,000+ cycle durability and thermal safety.",
+        ]
+    lines += [
+        f"4. **Stringing & Voltage Safety Rationale:** String length is limited to `{result.stringing.max_panels_per_string} panels/string` so that max open-circuit voltage ($V_{{oc}}$ at cold temperature $10^\\circ\\text{{C}}$) remains safely below the `1000V DC` maximum inverter input rating.",
+    ]
 
     lines += [
         "",

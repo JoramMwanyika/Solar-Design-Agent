@@ -60,8 +60,24 @@ def render_login_page():
                 err = str(e)
                 if "Invalid login credentials" in err:
                     st.error("Invalid email or password.")
+                elif "11001" in err or "getaddrinfo failed" in err or "ConnectError" in err:
+                    st.error("🌐 Network Connection Error: Unable to resolve Supabase server (DNS or Internet connection is offline).")
+                    st.info("💡 Tip: Click **⚡ Continue in Offline / Guest Mode** below to use SolarBot fully offline!")
                 else:
                     st.error(f"Login error: {err}")
+
+        st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
+        if st.button("⚡ Continue in Offline / Guest Mode", use_container_width=True, help="Bypass network login and use SolarBot 100% offline"):
+            class GuestUser:
+                id = "offline-guest-id"
+                email = "guest@local"
+            st.session_state["user"] = GuestUser()
+            st.session_state["profile"] = {"id": "offline-guest-id", "full_name": "Solar Design Guest", "role": "user", "is_active": True}
+            st.session_state["access_token"] = "offline-token"
+            st.session_state["is_admin"] = False
+            st.success("Entered Offline / Guest Mode!")
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_sidebar_user():

@@ -22,7 +22,7 @@ except ImportError:
     HAS_OPENAI = False
 
 from agent.system_sizer import size_system, LoadItem, format_sizing_summary, SizingResult
-from agent.boq_generator import generate_boq_excel, boq_to_markdown_table, generate_boq
+from agent.boq_generator import generate_boq_excel, boq_to_markdown_table, generate_boq, generate_sizing_and_design_workbook
 from agent.report_analyzer import extract_from_text, extract_from_image, format_extracted_data
 from utils.file_parser import parse_uploaded_file
 
@@ -43,8 +43,8 @@ SYSTEM_PROMPT = _load_prompt("system_prompt.txt")
 SIZING_PROMPT = _load_prompt("sizing_prompt.txt")
 BOQ_PROMPT    = _load_prompt("boq_prompt.txt")
 
-DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
-FALLBACK_GEMINI_MODELS = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+FALLBACK_GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest"]
 
 
 class SolarAgent:
@@ -54,12 +54,17 @@ class SolarAgent:
     """
 
     def __init__(self):
-        self.version = "3.1"
+        self.version = "4.8"
         self.featherless_token = os.getenv("FEATHERLESS_API_KEY")
         self.featherless_model = os.getenv("FEATHERLESS_MODEL", "deepseek-ai/DeepSeek-V3.1-Terminus")
         self.github_token = os.getenv("GITHUB_TOKEN")
         self.github_model = os.getenv("GITHUB_MODEL", "gpt-4o")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+
+        from agent.datasheet_loader import load_all_datasheets
+        self.datasheets = load_all_datasheets()
+        datasheet_kb = self.datasheets.get("knowledge_base_text", "")
+        full_system_prompt = f"{SYSTEM_PROMPT}\n\nEQUIPMENT DATASHEETS & KNOWLEDGE BASE:\n{datasheet_kb}"
 
         # Determine active brain: Featherless > GitHub Models > Gemini
         if self.featherless_token and HAS_OPENAI:
@@ -71,7 +76,7 @@ class SolarAgent:
                 http_client=httpx.Client()
             )
             self.active_model = self.featherless_model
-            self.gpt_history = [{"role": "system", "content": SYSTEM_PROMPT}]
+            self.gpt_history = [{"role": "system", "content": full_system_prompt}]
         elif self.github_token and HAS_OPENAI:
             self.active_engine = "github-gpt-4o"
             import httpx
@@ -81,18 +86,21 @@ class SolarAgent:
                 http_client=httpx.Client()
             )
             self.active_model = self.github_model
-            self.gpt_history = [{"role": "system", "content": SYSTEM_PROMPT}]
-        else:
+            self.gpt_history = [{"role": "system", "content": full_system_prompt}]
+        elif self.gemini_api_key:
             self.active_engine = "gemini"
             self.openai_client = None
-            self.active_model = None
+            self.gpt_history = []
+        else:
+            self.active_engine = "none"
+            self.openai_client = None
             self.gpt_history = []
 
         if self.gemini_api_key:
             self.gemini_client = genai.Client(api_key=self.gemini_api_key)
             self.current_gemini_model = DEFAULT_GEMINI_MODEL
             self._chat_config = types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=full_system_prompt,
                 temperature=0.4,
             )
             self.gemini_chat = self._create_gemini_chat(self.current_gemini_model)
@@ -103,11 +111,19 @@ class SolarAgent:
         if not self.openai_client and not self.gemini_client:
             raise EnvironmentError("Neither FEATHERLESS_API_KEY, GITHUB_TOKEN, nor GEMINI_API_KEY is set.")
 
-        # State
+        # Multiagent State
+        from agent.multiagent.state import ProjectState
+        from agent.multiagent.supervisor import SupervisorAgent
+        
+        self.project_state = ProjectState()
+        self.supervisor = SupervisorAgent(llm_generate_func=self._generate_content_safe)
+
+        # Legacy State (kept for compatibility during transition)
         self.system_type: str = "off-grid"
         self.last_sizing_result: Optional[SizingResult] = None
         self.last_boq_items: list[dict] = []
         self.last_boq_excel: Optional[bytes] = None
+        self.last_design_workbook: Optional[bytes] = None
         self.extracted_site_data: Optional[dict] = None
 
     def _create_gemini_chat(self, model_id: str, history: Optional[list] = None):
@@ -130,10 +146,17 @@ class SolarAgent:
         # 1. Try Featherless AI or GitHub Models via OpenAI client
         if self.active_engine in ("featherless", "github-gpt-4o") and self.openai_client:
             self.gpt_history.append({"role": "user", "content": message})
+            sys_msg = self.gpt_history[0] if (self.gpt_history and self.gpt_history[0]["role"] == "system") else None
+            rest_msgs = [m for m in self.gpt_history[1:]] if sys_msg else [m for m in self.gpt_history]
+            
+            while sum(len(m.get("content", "")) for m in rest_msgs) > 12000 and len(rest_msgs) > 2:
+                rest_msgs.pop(0)
+                
+            pruned_history = [sys_msg] + rest_msgs if sys_msg else rest_msgs
             try:
                 resp = self.openai_client.chat.completions.create(
                     model=self.active_model,
-                    messages=self.gpt_history,
+                    messages=pruned_history,
                     temperature=0.4,
                     max_tokens=2500
                 )
@@ -174,13 +197,14 @@ class SolarAgent:
 
     def _generate_content_safe(self, contents: str, temperature: float = 0.1) -> str:
         """Generates content prioritizing Featherless AI / GitHub Models, falling back to Gemini."""
+        safe_prompt = contents[:10000] if len(contents) > 10000 else contents
         if self.active_engine in ("featherless", "github-gpt-4o") and self.openai_client:
             try:
                 resp = self.openai_client.chat.completions.create(
                     model=self.active_model,
                     messages=[
                         {"role": "system", "content": "You are a specialized solar engineering extraction assistant."},
-                        {"role": "user", "content": contents}
+                        {"role": "user", "content": safe_prompt}
                     ],
                     temperature=temperature,
                     max_tokens=3000
@@ -197,7 +221,7 @@ class SolarAgent:
             try:
                 resp = self.gemini_client.models.generate_content(
                     model=model_name,
-                    contents=contents,
+                    contents=safe_prompt,
                     config=types.GenerateContentConfig(temperature=temperature),
                 )
                 return resp.text
@@ -250,46 +274,53 @@ class SolarAgent:
 
     def chat_message(self, user_message: str) -> tuple[str, Optional[bytes], Optional[list]]:
         """Sends a message to the agent and returns (response_text, boq_excel, boq_items)."""
-        if self._is_boq_request(user_message) and self.last_sizing_result:
-            return self._generate_boq_response()
+        # Maintain history in active engine
+        if self.active_engine in ("featherless", "github-gpt-4o"):
+            self.gpt_history.append({"role": "user", "content": user_message})
 
-        if self._is_sizing_request(user_message) or self._has_load_data(user_message):
-            structured_prompt = (
-                f"{SIZING_PROMPT}\n\n"
-                f"User message: {user_message}\n\n"
-                f"Extracted site data (if any): "
-                f"{json.dumps(self.extracted_site_data or {})}\n\n"
-                f"System type selected: {self.system_type}\n\n"
-                f"If you have enough data, extract load items and return the sizing "
-                f"JSON output format, then a natural language explanation. "
-                f"If you need more information, ask the user."
-            )
-            text = self._send_chat_message_safe(structured_prompt)
+        try:
+            history = self.get_conversation_history()
+            text = self.supervisor.process_message(user_message, self.project_state, history=history)
+            
+            # Sync ProjectState to legacy SizingResult for UI live panel
+            if self.project_state.total_pv_kwp > 0:
+                self.last_sizing_result = SizingResult(
+                    system_type=self.project_state.system_type,
+                    location=self.project_state.location,
+                    peak_sun_hours=self.project_state.peak_sun_hours,
+                    total_peak_power_w=self.project_state.peak_demand_kw * 1000,
+                    daily_energy_wh=self.project_state.daily_energy_kwh * 1000,
+                    design_energy_wh=self.project_state.daily_energy_kwh * 1000 / 0.78,
+                    panel_wp=self.project_state.panel_wp,
+                    panel_qty=self.project_state.panel_qty,
+                    total_pv_kwp=self.project_state.total_pv_kwp,
+                    inverter_kw=self.project_state.inverter_kw,
+                    inverter_kva=self.project_state.inverter_kva,
+                    inverter_qty=self.project_state.inverter_qty,
+                    battery_qty=self.project_state.battery_qty,
+                    battery_module_kwh=14.33 if self.project_state.system_voltage_dc > 48 else 5.12,
+                    total_storage_kwh=self.project_state.total_storage_kwh,
+                    dod=self.project_state.dod,
+                )
+                self.last_design_workbook = self.get_or_create_design_workbook(location=self.project_state.location)
 
-            sizing_data = self._extract_json(text)
-            if sizing_data and "panel_qty" in sizing_data:
-                loads = self._parse_loads_from_site_data()
-                if loads:
-                    result = size_system(
-                        system_type=self.system_type,
-                        loads=loads,
-                        location=sizing_data.get("location", "East Africa"),
-                        days_of_autonomy=sizing_data.get("days_of_autonomy", 2.0),
-                        panel_wp=sizing_data.get("panel_wp", 625),
-                    )
-                    self.last_sizing_result = result
-                    summary_md = format_sizing_summary(result)
-                    return (
-                        summary_md
-                        + "\n\n---\n*Type **'generate BOQ'** to create the Bill of Quantities.*",
-                        None,
-                        None,
-                    )
+            # Auto-generate BOQ if requested or if design completed
+            if "boq" in user_message.lower() or "bill of quantities" in user_message.lower() or "generate boq" in user_message.lower():
+                if self.last_sizing_result:
+                    self.last_boq_items = self._template_boq(self.last_sizing_result)
+                    self.last_boq_excel = generate_boq_excel(self.last_boq_items)
+            
+            # Store assistant response in history
+            if self.active_engine in ("featherless", "github-gpt-4o"):
+                self.gpt_history.append({"role": "assistant", "content": text})
 
-            return text, None, None
-
-        text = self._send_chat_message_safe(user_message)
-        return text, None, None
+            return text, self.last_boq_excel, self.last_boq_items
+            
+        except Exception as e:
+            err_msg = f"**Supervisor Error**: {str(e)}"
+            if self.active_engine in ("featherless", "github-gpt-4o"):
+                self.gpt_history.append({"role": "assistant", "content": err_msg})
+            return err_msg, None, None
 
     # ─────────────────────────────────────────
     # Direct Sizing (from Quick Form or CSV)
@@ -314,6 +345,15 @@ class SolarAgent:
         mppt_rating: int = 60,
     ) -> tuple[str, SizingResult]:
         """Direct sizing call (used from UI quick form or CSV load upload)."""
+        # Store loads in ProjectState for multiagent context
+        self.project_state.loads = loads
+        self.project_state.location = location or "East Africa"
+        self.project_state.days_of_autonomy = float(days_of_autonomy)
+        self.project_state.dod = float(dod)
+        self.project_state.system_voltage_dc = int(system_voltage_dc)
+        self.project_state.panel_wp = int(panel_wp)
+        self.project_state.system_type = self.system_type
+
         load_items = [
             LoadItem(
                 name=str(l.get("name", "Load")),
@@ -338,21 +378,65 @@ class SolarAgent:
             panel_wp=int(panel_wp),
         )
         self.last_sizing_result = result
-        md = format_sizing_summary(result)
+        
+        # Sync calculated values into ProjectState
+        self.project_state.daily_energy_kwh = result.daily_energy_wh / 1000.0
+        self.project_state.peak_demand_kw = result.total_peak_power_w / 1000.0
+        self.project_state.total_pv_kwp = result.total_pv_kwp
+        self.project_state.panel_qty = result.panel_qty
+        self.project_state.inverter_kw = result.inverter_kw
+        self.project_state.inverter_kva = result.inverter_kva
+        self.project_state.inverter_qty = result.inverter_qty
+        self.project_state.battery_qty = result.battery_qty
+        self.project_state.total_storage_kwh = result.total_storage_kwh
+        self.project_state.usable_storage_kwh = getattr(result, "usable_storage_kwh", result.total_storage_kwh * result.dod)
+        self.project_state.peak_sun_hours = result.peak_sun_hours
 
-        try:
-            self._send_chat_message_safe(
-                f"System sizing has been completed via the Quick Form/CSV Upload. Results:\n{md}\n"
-                f"The user can now type 'generate BOQ' to create the Bill of Quantities."
-            )
-        except Exception:
-            pass
+        md = format_sizing_summary(result)
+        self.last_design_workbook = self.get_or_create_design_workbook(location=location or "East Africa")
+        self.last_boq_items = self._template_boq(result)
+        self.last_boq_excel = generate_boq_excel(self.last_boq_items)
+
+        # Store system sizing result in conversation history
+        sizing_msg = f"⚡ **System sizing completed.** Results:\n{md}"
+        if self.active_engine in ("featherless", "github-gpt-4o"):
+            self.gpt_history.append({"role": "assistant", "content": sizing_msg})
+        elif self.gemini_chat:
+            try:
+                self.gemini_chat.send_message(f"[System Sizing Complete]:\n{md}")
+            except Exception:
+                pass
 
         return md, result
 
     # ─────────────────────────────────────────
-    # BOQ Generation
+    # BOQ & Design Workbook Generation
     # ─────────────────────────────────────────
+
+    def get_or_create_design_workbook(
+        self,
+        project_name: str = "Solar PV System",
+        location: str = "",
+        client_name: str = "",
+        prepared_by: str = "",
+    ) -> Optional[bytes]:
+        """Generates or retrieves the 6-sheet Sizing & Design Excel Workbook."""
+        if not self.last_sizing_result:
+            return None
+        try:
+            wb_bytes = generate_sizing_and_design_workbook(
+                sizing=self.last_sizing_result.to_dict(),
+                boq_items=self.last_boq_items or None,
+                project_name=project_name,
+                location=location or self.last_sizing_result.location,
+                client_name=client_name,
+                prepared_by=prepared_by,
+            )
+            self.last_design_workbook = wb_bytes
+            return wb_bytes
+        except Exception as e:
+            print(f"Error generating design workbook: {e}")
+            return None
 
     def generate_boq(
         self,
@@ -397,6 +481,7 @@ class SolarAgent:
             sizing_summary=sizing_dict,
         )
         self.last_boq_excel = excel_bytes
+        self.get_or_create_design_workbook(project_name, location or result.location, client_name, prepared_by)
 
         md_table = boq_to_markdown_table(boq_items)
         return md_table, excel_bytes, boq_items
@@ -469,6 +554,24 @@ class SolarAgent:
     def _template_boq(self, result: SizingResult) -> list[dict]:
         """Exact 14-category quantities-only fallback BOQ based on sizing result."""
         return generate_boq(result.to_dict(), "Solar PV System")
+
+    def load_conversation_history(self, messages: list[dict]):
+        """Hydrates active AI engine memory from saved database messages."""
+        if self.active_engine in ("featherless", "github-gpt-4o"):
+            self.gpt_history = [{"role": "system", "content": SYSTEM_PROMPT}]
+            for m in messages:
+                if m.get("role") in ("user", "assistant") and m.get("content"):
+                    self.gpt_history.append({"role": m["role"], "content": m["content"]})
+        elif self.gemini_client:
+            history_objs = []
+            for m in messages:
+                role = "user" if m.get("role") == "user" else "model"
+                if m.get("content"):
+                    try:
+                        history_objs.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
+                    except Exception:
+                        pass
+            self.gemini_chat = self._create_gemini_chat(self.current_gemini_model, history=history_objs)
 
     def get_conversation_history(self) -> list[dict]:
         """Returns conversation history as list of dicts for DB storage."""

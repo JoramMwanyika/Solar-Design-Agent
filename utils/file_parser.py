@@ -190,6 +190,14 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
     elif len(df) >= 15 and not col_qty and not col_hrs:
         is_time_series = True
 
+    def get_val(r, c):
+        if c is None:
+            return None
+        v = r.get(c)
+        if isinstance(v, pd.Series):
+            return v.iloc[0]
+        return v
+
     def parse_number(val):
         if pd.isna(val):
             return None
@@ -205,7 +213,7 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
     for idx, row in df.iterrows():
         p_val = 0.0
         if col_p is not None:
-            raw_p = parse_number(row.get(col_p))
+            raw_p = parse_number(get_val(row, col_p))
             if raw_p is not None and raw_p > 0:
                 if col_p and ("kw" in str(col_p).lower() or (is_time_series and raw_p < 150.0 and "w" not in str(col_p).lower())):
                     p_val = raw_p * 1000.0
@@ -214,7 +222,7 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
 
         s_val = None
         if col_s is not None:
-            raw_s = parse_number(row.get(col_s))
+            raw_s = parse_number(get_val(row, col_s))
             if raw_s is not None and raw_s > 0:
                 if col_s and ("kva" in str(col_s).lower() or (raw_s < 150.0 and "va" not in str(col_s).lower())):
                     s_val = raw_s * 1000.0
@@ -222,9 +230,10 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
                     s_val = raw_s
 
         if p_val > 0 or (s_val is not None and s_val > 0):
-            item_name = str(row[col_name]).strip() if (col_name and pd.notna(row.get(col_name))) else (f"Interval {idx+1}" if is_time_series else f"Item {idx+1}")
-            qty_val = parse_number(row.get(col_qty)) if col_qty else 1
-            hrs_val = parse_number(row.get(col_hrs)) if col_hrs else 1.0
+            c_name_val = get_val(row, col_name)
+            item_name = str(c_name_val).strip() if (col_name and pd.notna(c_name_val)) else (f"Interval {idx+1}" if is_time_series else f"Item {idx+1}")
+            qty_val = parse_number(get_val(row, col_qty)) if col_qty else 1
+            hrs_val = parse_number(get_val(row, col_hrs)) if col_hrs else 1.0
 
             csv_loads.append({
                 "name": item_name,

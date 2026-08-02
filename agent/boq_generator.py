@@ -516,3 +516,242 @@ def generate_boq_excel(
     out = BytesIO()
     wb.save(out)
     return out.getvalue()
+
+
+def generate_sizing_and_design_workbook(
+    sizing: dict,
+    boq_items: Optional[List[Dict]] = None,
+    project_name: str = "Solar PV System Design Workbook",
+    location: str = "East Africa",
+    client_name: str = "",
+    prepared_by: str = "",
+) -> bytes:
+    """
+    Generates a comprehensive, multi-sheet engineering sizing and design workbook (.xlsx).
+    Includes:
+      Sheet 1: Executive Summary & Load Demand
+      Sheet 2: PV Array & Stringing Configuration
+      Sheet 3: Battery Storage System (BESS) & Protection
+      Sheet 4: Inverter Selection & AC Switchgear
+      Sheet 5: Cable Sizing (DC String / AC Feeder) & LPS Schedule
+      Sheet 6: Complete Bill of Quantities (Quantities Only)
+    """
+    if not boq_items:
+        boq_items = generate_boq(sizing, project_name)
+
+    wb = openpyxl.Workbook()
+    
+    # Styles
+    title_font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    bold_font = Font(name="Calibri", size=11, bold=True)
+    data_font = Font(name="Calibri", size=11)
+    
+    title_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    header_fill = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")
+    section_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    zebra_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    
+    thin_border = Border(
+        left=Side(style="thin", color="D9D9D9"),
+        right=Side(style="thin", color="D9D9D9"),
+        top=Side(style="thin", color="D9D9D9"),
+        bottom=Side(style="thin", color="D9D9D9")
+    )
+
+    def format_title_banner(ws, title_text: str, cols: int = 5):
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=cols)
+        cell = ws.cell(row=1, column=1, value=f"  {title_text.upper()} — {project_name.upper()}")
+        cell.font = title_font
+        cell.fill = title_fill
+        cell.alignment = Alignment(vertical="center")
+        ws.row_dimensions[1].height = 36
+        
+        ws.cell(row=2, column=1, value=f"Project: {project_name} | Location: {location} | Prepared By: {prepared_by or 'SolarBot AI'} | System Type: {sizing.get('system_type', 'Hybrid').upper()}")
+        ws.cell(row=2, column=1).font = Font(name="Calibri", size=10, italic=True, color="595959")
+        ws.row_dimensions[2].height = 20
+
+    def write_table(ws, start_row: int, headers: List[str], rows: List[List[str]], col_widths: Dict[int, int]):
+        # Write headers
+        for col_idx, h in enumerate(headers, 1):
+            c = ws.cell(row=start_row, column=col_idx, value=h)
+            c.font = header_font
+            c.fill = header_fill
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = thin_border
+        ws.row_dimensions[start_row].height = 24
+        
+        # Write data rows
+        curr = start_row + 1
+        for i, row_data in enumerate(rows):
+            for col_idx, val in enumerate(row_data, 1):
+                c = ws.cell(row=curr, column=col_idx, value=val)
+                c.font = data_font
+                c.border = thin_border
+                if i % 2 == 1:
+                    c.fill = zebra_fill
+                if col_idx == 1:
+                    c.font = bold_font
+                elif col_idx in (2, 3):
+                    c.alignment = Alignment(horizontal="left", vertical="center")
+                else:
+                    c.alignment = Alignment(horizontal="center", vertical="center")
+            ws.row_dimensions[curr].height = 22
+            curr += 1
+        
+        for col_idx, w in col_widths.items():
+            ws.column_dimensions[get_column_letter(col_idx)].width = w
+        return curr + 1
+
+    # ── Sheet 1: Executive Summary & Load Demand ──
+    ws1 = wb.active
+    ws1.title = "1. Executive Summary"
+    format_title_banner(ws1, "System Executive Summary & Load Demand", cols=4)
+    
+    sys_type = sizing.get("system_type", "hybrid")
+    sizing_basis = "Apparent Power (S) in kVA" if sys_type in ("off-grid", "hybrid") else "Active Power (P) in kW"
+    
+    summary_rows = [
+        ["System Classification", sys_type.upper(), "Standard off-grid / hybrid / grid-tied configuration"],
+        ["Location & Solar Resource", f"{location} ({sizing.get('peak_sun_hours', 5.0)} Peak Sun Hours)", "Based on regional solar radiation data"],
+        ["Inverter Sizing Basis", sizing_basis, "IEC 62548 & AS/NZS 4509 engineering rule"],
+        ["Peak Active Power Demand (P)", f"{sizing.get('total_peak_power_w', 0):,.1f} W ({sizing.get('total_peak_power_w', 0)/1000:,.2f} kW)", "Total connected load real power draw"],
+        ["Peak Apparent Power Demand (S)", f"{sizing.get('total_peak_va', 0):,.1f} VA ({sizing.get('total_peak_va', 0)/1000:,.2f} kVA)", "Includes power factor (PF) & inductive surge"],
+        ["Daily Energy Consumption", f"{sizing.get('daily_energy_kwh', 0):.2f} kWh/day", "Base load schedule requirement"],
+        ["Design Target Energy (with losses)", f"{sizing.get('design_energy_kwh', 0):.2f} kWh/day", "Accounts for system losses and performance ratio"],
+        ["Proposed DC Array Capacity", f"{sizing.get('total_pv_kwp', 0):.2f} kWp", f"Total PV array rating ({sizing.get('panel_qty', 0)} pcs x {sizing.get('panel_wp', 625)}Wp)"],
+        ["Proposed Inverter Size", f"{sizing.get('inverter', {}).get('kw', 0):.1f} kW / {sizing.get('inverter', {}).get('kva', 0):.1f} kVA", f"Quantity: {sizing.get('inverter', {}).get('qty', 1)} unit(s)"],
+    ]
+    if sys_type in ("off-grid", "hybrid"):
+        summary_rows.append(["Proposed Battery Storage (BESS)", f"{sizing.get('battery', {}).get('total_kwh', 0):.2f} kWh", f"{sizing.get('battery', {}).get('qty', 0)} pcs x {sizing.get('battery', {}).get('module_kwh', 14.33)} kWh modules"])
+        summary_rows.append(["Days of Autonomy & DoD", f"{sizing.get('days_of_autonomy', 2.0)} Days at {sizing.get('dod', 0.8)*100:.0f}% DoD", "Includes mandatory 1.25x degradation/conversion safety factor"])
+
+    write_table(ws1, 4, ["Design Parameter", "Calculated Specification", "Engineering Basis & Notes"], summary_rows, {1: 32, 2: 35, 3: 50})
+
+    # ── Sheet 2: PV Array & Stringing ──
+    ws2 = wb.create_sheet(title="2. PV Array & Stringing")
+    format_title_banner(ws2, "Solar PV Array & Stringing Configuration", cols=4)
+    
+    string_info = sizing.get("stringing", {})
+    pv_rows = [
+        ["PV Module Power Rating", f"{sizing.get('panel_wp', 625)} Wp", "High-efficiency monocrystalline PV module"],
+        ["Total Required DC Capacity", f"{sizing.get('total_pv_kwp', 0):.2f} kWp", "Sized against daily design target energy"],
+        ["Total PV Modules Required", f"{sizing.get('panel_qty', 0)} pcs", f"Rule: ceil({sizing.get('total_pv_kwp', 0):.2f} kWp / {sizing.get('panel_wp', 625)/1000:.3f} kWp)"],
+        ["Max Inverter Input Voltage (Vin_max)", "1000 V DC", "Maximum allowable DC voltage per string"],
+        ["Module Open Circuit Voltage (Voc)", "49.28 V DC", "Module specification at Standard Test Conditions"],
+        ["Max Panels per String", f"{string_info.get('max_panels_per_string', 19)} pcs", "Formula: floor(Vin_max / (Voc * (1 + K*(Tmin - 25°C))))"],
+        ["Panels per MPPT", f"{string_info.get('panels_per_mppt', 26)} panels", "Allocated based on max input power per MPPT"],
+        ["Total Number of Strings", f"{string_info.get('total_strings', 4)} strings", "Optimal parallel string distribution"],
+        ["Operating String Voltage", f"{string_info.get('string_voltage_v', 650):.1f} V DC", "Well within inverter MPPT tracking voltage window"],
+    ]
+    write_table(ws2, 4, ["PV Array Parameter", "Specification", "Engineering Formula / Verification"], pv_rows, {1: 32, 2: 30, 3: 55})
+
+    # ── Sheet 3: Battery Storage (BESS) ──
+    ws3 = wb.create_sheet(title="3. Battery Storage (BESS)")
+    format_title_banner(ws3, "Battery Energy Storage System & Protection", cols=4)
+    
+    batt_info = sizing.get("battery", {})
+    bess_rows = [
+        ["Needed BESS (Base + Buffer)", f"{batt_info.get('total_kwh', 0):.3f} kWh", "Formula: [(Daily Energy * Autonomy) / DoD] * 1.25 safety factor"],
+        ["Selected Battery Module", batt_info.get("type", "Dyness Stack280 14.33kWh HV Battery"), f"{batt_info.get('module_kwh', 14.33)} kWh per high-voltage module"],
+        ["Number of Battery Modules", f"{batt_info.get('qty', 0)} pcs", f"Rule: ceil({batt_info.get('total_kwh', 0):.2f} / {batt_info.get('module_kwh', 14.33)})"],
+        ["Number of Battery Racks/Stacks", f"{batt_info.get('stacks', 1)} Stack(s)", "Vertical stack configuration (max 9 modules per rack)"],
+        ["Actual Installed Usable BESS", f"{batt_info.get('qty', 0) * batt_info.get('module_kwh', 14.33):.3f} kWh", "Total connected physical storage capacity"],
+        ["Max Charge / Discharge Current", f"{batt_info.get('breaker_a', 125)/1.25:.1f} A", "Continuous operational current under peak load"],
+        ["Battery DC Breaker Rating", f"{batt_info.get('breaker_a', 125):.1f} A (160A Frame)", "Rule: 1.25 * Max Charge/Discharge Current at 1000Vdc"],
+        ["Main Battery Riser Cable", "50 mm² CU/PVC/PVC-Nitrile", "From battery tower/stack to main DC breaker (300/500Vdc)"],
+        ["Battery Inverter Feeder Cables", "16 mm² CU/PVC/PVC-Nitrile", "4 runs for two battery inverter inputs"],
+    ]
+    write_table(ws3, 4, ["BESS Parameter", "Specification", "Engineering Formula / Note"], bess_rows, {1: 32, 2: 35, 3: 55})
+
+    # ── Sheet 4: Inverter & Switchgear ──
+    ws4 = wb.create_sheet(title="4. Inverter & Switchgear")
+    format_title_banner(ws4, "Inverter Selection & AC Switchboard Configuration", cols=4)
+    
+    inv_info = sizing.get("inverter", {})
+    inv_rows = [
+        ["Inverter Power Capacity", f"{inv_info.get('kw', 50):.1f} kW ({inv_info.get('kva', 50):.1f} kVA)", "Sized against peak demand with 1.25x safety margin"],
+        ["Number of Inverters", f"{inv_info.get('qty', 1)} pcs", "3-Phase / 1-Phase inverter configuration"],
+        ["Total Installed AC Capacity", f"{inv_info.get('kw', 50) * inv_info.get('qty', 1):.1f} kW", "Combined continuous output"],
+        ["Inverter Type & Classification", f"On-Grid / Hybrid Solar Inverter ({sys_type.upper()})", "Smart multi-MPPT bidirectional inverter with BMS CAN/RS485"],
+        ["Max Output AC Current (I_ac)", f"{inv_info.get('kw', 50)*1000 / (1.732 * 400 * 0.9):.1f} A", "Formula: P_watts / (sqrt(3) * 400V * cos_phi 0.9)"],
+        ["Recommended AC Breaker Rating", f"{(inv_info.get('kw', 50)*1000 / (1.732 * 400 * 0.9))*1.25:.1f} A (125A / 160A MCCB)", "Rule: 1.25 * I_ac with adjustable thermal-magnetic trip"],
+        ["DC Surge Protection", "Type II 1000V DC SPDs", "Installed in PV String Junction Boxes / DCDB"],
+        ["AC Surge Protection & Isolation", "Type II 440V AC SPDs & 4-Pole Isolator", "Installed in main AC Distribution Board"],
+    ]
+    write_table(ws4, 4, ["Inverter / AC Parameter", "Specification", "Engineering Formula / Verification"], inv_rows, {1: 32, 2: 35, 3: 55})
+
+    # ── Sheet 5: Cable Sizing & LPS Schedule ──
+    ws5 = wb.create_sheet(title="5. Cable Sizing & LPS")
+    format_title_banner(ws5, "DC/AC Cable Sizing Formulas & Earthing/LPS Schedule", cols=4)
+    
+    cables_info = sizing.get("cables", {})
+    cable_rows = [
+        ["PV DC String Cable Cross-Section", f"{cables_info.get('dc_sqmm', 4)} mm² TCU/XLPO (1.5/1.5kVdc)", f"Formula: I*rho*2L / VD (Total run: {cables_info.get('dc_total_m', 120):.0f} m)"],
+        ["AC Main Feeder Cable", f"1 run of 4-core {cables_info.get('ac_sqmm', 25)} mm² CU/XLPE/PVC", f"V.D check: {cables_info.get('ac_vd_pct', 2.5):.2f}% ({cables_info.get('ac_vd_v', 10):.1f}V) over {cables_info.get('ac_dist_m', 100):.0f}m"],
+        ["Inverter to PVDB Earthing Cable", "16 mm² CU/PVC (450/750V)", "Estimated run length: 15 m"],
+        ["PVDB to Main Earth Bar Cable", "16 mm² CU/PVC (450/750V)", "Estimated run length: 40 m"],
+        ["PV Rail-to-Rail Bonding Cable", "6 mm² CU/PVC (450/750V)", "Inter-module structure bonding"],
+        ["Roof / Mounting Structure to PVDB", "16 mm² CU/PVC (450/750V)", "Estimated run length: 60 m"],
+        ["Roof / Mounting Structure to Earthpit", "16 mm² CU/PVC (450/750V)", "Direct earth connection run: 15 m"],
+        ["Battery Tower to PVDB Earth Cable", "16 mm² CU/PVC (450/750V)", "Estimated run length: 5 m"],
+        ["Lightning Protection System (LPS)", "25x3mm Pure Copper Tape", "Perimeter roof ring & down conductors to earthpit: 135 m"],
+    ]
+    write_table(ws5, 4, ["Circuit / Earthing Connection", "Cable & Conductor Specification", "Formula / Run Length Schedule"], cable_rows, {1: 35, 2: 35, 3: 55})
+
+    # ── Sheet 6: Complete BOQ ──
+    ws6 = wb.create_sheet(title="6. Bill of Quantities (BOQ)")
+    format_title_banner(ws6, "Bill of Quantities (Quantities Only — No Pricing)", cols=8)
+    
+    boq_headers = ["Item No.", "Category", "Description", "Quantity", "Unit", "Unit Cost", "Total Cost", "Remarks"]
+    curr_row = 4
+    for col_idx, h in enumerate(boq_headers, 1):
+        c = ws6.cell(row=curr_row, column=col_idx, value=h)
+        c.font = header_font
+        c.fill = header_fill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = thin_border
+    ws6.row_dimensions[curr_row].height = 26
+    curr_row += 1
+
+    curr_cat = ""
+    for item in boq_items:
+        cat = item.get("category", "")
+        if cat != curr_cat:
+            curr_cat = cat
+            ws6.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=8)
+            cat_cell = ws6.cell(row=curr_row, column=1, value=f"  {curr_cat.upper()}")
+            cat_cell.font = bold_font
+            cat_cell.fill = section_fill
+            cat_cell.alignment = Alignment(vertical="center")
+            ws6.row_dimensions[curr_row].height = 22
+            for c in range(1, 9):
+                ws6.cell(row=curr_row, column=c).border = thin_border
+            curr_row += 1
+
+        ws6.cell(row=curr_row, column=1, value=item.get("item_no", "")).alignment = Alignment(horizontal="center", vertical="center")
+        ws6.cell(row=curr_row, column=2, value=cat).alignment = Alignment(vertical="center")
+        desc_c = ws6.cell(row=curr_row, column=3, value=item.get("description", ""))
+        desc_c.alignment = Alignment(vertical="center", wrap_text=True)
+        ws6.cell(row=curr_row, column=4, value=item.get("quantity", "")).alignment = Alignment(horizontal="center", vertical="center")
+        ws6.cell(row=curr_row, column=5, value=item.get("unit", "")).alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Blank price columns
+        ws6.cell(row=curr_row, column=6, value="").fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+        ws6.cell(row=curr_row, column=7, value="").fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+        ws6.cell(row=curr_row, column=8, value=item.get("remarks", "")).alignment = Alignment(vertical="center")
+        
+        for c in range(1, 9):
+            ws6.cell(row=curr_row, column=c).font = data_font
+            ws6.cell(row=curr_row, column=c).border = thin_border
+        ws6.row_dimensions[curr_row].height = 24
+        curr_row += 1
+
+    boq_widths = {1: 10, 2: 22, 3: 45, 4: 10, 5: 10, 6: 16, 7: 16, 8: 35}
+    for col_idx, w in boq_widths.items():
+        ws6.column_dimensions[get_column_letter(col_idx)].width = w
+
+    out_wb = BytesIO()
+    wb.save(out_wb)
+    return out_wb.getvalue()
+
