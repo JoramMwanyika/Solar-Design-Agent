@@ -134,7 +134,7 @@ solar_resource_agent = MultiAgent(
 pv_design_agent = MultiAgent(
     name="PV Design Agent",
     role="Photovoltaic array designer.",
-    goal="Size the PV array (kWp) using formula: Required DC Capacity (kWp) = Daily Energy / PSH (no losses included), calculate number of panels, and determine stringing configuration.",
+    goal="Size the PV array (kWp) using formula: Required DC Capacity (kWp) = Daily Energy / PSH (no losses included), calculate number of panels, max panels per string from panel Voc & inverter max Vin, and Panels per MPPT = floor((Max PV Input / No. MPPTs) / Panel kWp).",
     tools=[mt.size_pv_array, mt.calculate_stringing]
 )
 
@@ -150,7 +150,7 @@ battery_design_agent = MultiAgent(
 inverter_selection_agent = MultiAgent(
     name="Inverter Selection Agent",
     role="Inverter configuration specialist.",
-    goal="Choose compatible inverter sizes (kW/kVA) and quantities.",
+    goal="Choose compatible inverters: Huawei for Grid-Tied systems, Deye or Solis for Hybrid/Off-Grid systems. Check Low Voltage (48V) vs High Voltage (HV 384V+) for hybrid systems.",
     tools=[mt.size_inverter]
 )
 

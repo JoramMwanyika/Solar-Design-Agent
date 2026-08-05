@@ -264,7 +264,7 @@ hr { border-color: #1e2a3a !important; }
 
 
 # ── Initialize Agent ─────────────────────────
-if "agent" not in st.session_state or getattr(st.session_state["agent"], "version", "") != "4.8":
+if "agent" not in st.session_state or getattr(st.session_state["agent"], "version", "") != "5.3":
     try:
         st.session_state["agent"] = SolarAgent()
     except EnvironmentError as e:
@@ -438,6 +438,13 @@ with st.sidebar:
 col_center, col_right = st.columns([2.5, 1], gap="large")
 
 with col_center:
+    # ── Admin Dashboard & Account Monitor ──────
+    is_admin = st.session_state.get("is_admin") or st.session_state.get("profile", {}).get("role") == "admin"
+    if is_admin:
+        with st.expander("👑 Admin Dashboard — Active Accounts Monitor & User Credentials", expanded=False):
+            from auth.admin_ui import render_admin_dashboard
+            render_admin_dashboard()
+
     # Top Bar: Greeting
     st.markdown("""
     <div style="display:flex; align-items:center; gap:20px; margin-bottom: 20px;">

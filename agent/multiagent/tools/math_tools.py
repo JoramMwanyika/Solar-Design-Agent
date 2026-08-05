@@ -203,13 +203,23 @@ def size_pv_array(daily_energy_kwh: float, psh: float, peak_demand_kw: float, pa
     }
 
 def calculate_stringing(panel_qty: int, panel_voc: float, panel_vmp: float, max_inverter_vin: float, 
-                        tmin_celsius: float, temp_coeff_k: float) -> Dict[str, Any]:
+                        tmin_celsius: float, temp_coeff_k: float, panel_wp: float = 625.0,
+                        inverter_kw_std: float = 150.0, num_mppts: int = 8) -> Dict[str, Any]:
     """
-    Calculates maximum panels per string and total strings.
+    Calculates maximum panels per string, panels per MPPT, and total strings per user directives.
     """
     voc_adjusted = panel_voc * (1.0 + temp_coeff_k * (tmin_celsius - 25.0))
     max_panels_per_string = max(1, math.floor(max_inverter_vin / max(1.0, voc_adjusted)))
     
+    # Panels per MPPT formula:
+    # 1. Max PV Input Power = Inverter kW * 1.5
+    # 2. Max Power per MPPT = Max PV Input Power / num_mppts
+    # 3. Panels per MPPT = floor(Max Power per MPPT / Panel kWp)
+    single_panel_kw = panel_wp / 1000.0
+    max_pv_input_kw = inverter_kw_std * 1.5
+    max_kw_per_mppt = max_pv_input_kw / max(1, num_mppts)
+    panels_per_mppt = max(1, math.floor(max_kw_per_mppt / single_panel_kw))
+
     panels_per_string = min(max_panels_per_string, max(8, min(16, panel_qty // 2 or 1)))
     total_strings = math.ceil(panel_qty / max(1, panels_per_string))
     string_voltage_v = panels_per_string * panel_vmp
@@ -220,7 +230,7 @@ def calculate_stringing(panel_qty: int, panel_voc: float, panel_vmp: float, max_
         "panels_per_string": panels_per_string,
         "total_strings": total_strings,
         "string_voltage_v": string_voltage_v,
-        "panels_per_mppt": panels_per_string * 2
+        "panels_per_mppt": panels_per_mppt
     }
 
 def size_battery(system_type: str, daily_energy_kwh: float, days_of_autonomy: float, dod: float, 
@@ -300,11 +310,32 @@ def size_inverter(system_type: str, peak_demand_kw: float, total_pv_kwp: float, 
     inverter_kw_std = float(best_size)
     inverter_qty = int(best_qty)
     inverter_kva = inverter_kw_std if system_type in ("off-grid", "hybrid") else inverter_kw_std / 0.9
+
+    if system_type == "grid-tied":
+        inverter_brand = "Huawei SUN2000 Commercial Series"
+        voltage_architecture = "High Voltage (HV: 1100V DC)"
+        max_inverter_vin = 1100.0
+        num_mppts = 10 if inverter_kw_std >= 100 else (6 if inverter_kw_std >= 80 else 4)
+    else:
+        if inverter_kw_std <= 15:
+            inverter_brand = "Deye / Solis Low Voltage (LV) Hybrid"
+            voltage_architecture = "Low Voltage (LV: 48V BESS / 500V DC)"
+            max_inverter_vin = 500.0
+            num_mppts = 2
+        else:
+            inverter_brand = "Deye / Solis High Voltage (HV) Hybrid"
+            voltage_architecture = "High Voltage (HV: 1000V DC / 384V BESS)"
+            max_inverter_vin = 1000.0
+            num_mppts = 8 if inverter_kw_std >= 80 else (6 if inverter_kw_std >= 30 else 4)
     
     return {
         "inverter_kw_std": inverter_kw_std,
         "inverter_kva": inverter_kva,
-        "inverter_qty": inverter_qty
+        "inverter_qty": inverter_qty,
+        "inverter_brand": inverter_brand,
+        "voltage_architecture": voltage_architecture,
+        "max_inverter_vin": max_inverter_vin,
+        "num_mppts": num_mppts
     }
 
 def size_cables(string_voltage_v: float, panel_imp: float, dc_cable_distance_m: float, total_strings: int, 

@@ -67,16 +67,29 @@ def render_login_page():
                     st.error(f"Login error: {err}")
 
         st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
-        if st.button("⚡ Continue in Offline / Guest Mode", use_container_width=True, help="Bypass network login and use SolarBot 100% offline"):
-            class GuestUser:
-                id = "offline-guest-id"
-                email = "guest@local"
-            st.session_state["user"] = GuestUser()
-            st.session_state["profile"] = {"id": "offline-guest-id", "full_name": "Solar Design Guest", "role": "user", "is_active": True}
-            st.session_state["access_token"] = "offline-token"
-            st.session_state["is_admin"] = False
-            st.success("Entered Offline / Guest Mode!")
-            st.rerun()
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            if st.button("⚡ Offline User", use_container_width=True, help="Bypass network login as standard user"):
+                class GuestUser:
+                    id = "offline-guest-id"
+                    email = "guest@local"
+                st.session_state["user"] = GuestUser()
+                st.session_state["profile"] = {"id": "offline-guest-id", "full_name": "Solar Design Guest", "role": "user", "is_active": True}
+                st.session_state["access_token"] = "offline-token"
+                st.session_state["is_admin"] = False
+                st.success("Entered Offline User Mode!")
+                st.rerun()
+        with col_g2:
+            if st.button("👑 Offline Admin", use_container_width=True, help="Bypass network login with full Admin Rights"):
+                class AdminGuestUser:
+                    id = "00000000-0000-0000-0000-000000000001"
+                    email = "admin@solaragent.com"
+                st.session_state["user"] = AdminGuestUser()
+                st.session_state["profile"] = {"id": "00000000-0000-0000-0000-000000000001", "full_name": "Admin Lead Engineer", "role": "admin", "is_active": True}
+                st.session_state["access_token"] = "offline-admin-token"
+                st.session_state["is_admin"] = True
+                st.success("Entered Admin Mode with Full Admin Rights!")
+                st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
 

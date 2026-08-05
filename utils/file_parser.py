@@ -112,7 +112,7 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
     """
     Intelligently extracts load items from any uploaded CSV/Excel DataFrame.
     Automatically handles both:
-      1) Standard Appliance Schedules (summing items)
+      1) Standard Appliance Schedules / Load Profiles (summing items & using explicit energy/time columns)
       2) Logged Meter Time-Series Data (peak interval & daily averages)
     Returns: (loads_list, is_time_series_flag)
     """
@@ -124,20 +124,19 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
 
     df = df_raw.copy()
 
-    # Step 1: Check if top rows are metadata/header rows (common in Fluke/meter logs)
+    # Step 1: Check if top rows are metadata/header rows
     def looks_like_header(row_vals):
         words = set()
         for v in row_vals:
             if pd.notna(v):
                 for w in str(v).lower().replace("(", " ").replace(")", " ").replace("[", " ").replace("]", " ").replace("-", " ").replace("_", " ").split():
                     words.add(w)
-        power_hits = sum(1 for kw in ("watt", "watts", "wattage", "active", "apparent", "power", "kw", "kva") if kw in words)
+        power_hits = sum(1 for kw in ("watt", "watts", "wattage", "active", "apparent", "power", "kw", "kva", "energy") if kw in words)
         if power_hits >= 1:
             return True
-        general_hits = sum(1 for kw in ("name", "appliance", "item", "description", "timestamp", "time", "date", "interval", "load", "demand", "quantity", "qty", "hours") if kw in words)
+        general_hits = sum(1 for kw in ("loads", "name", "appliance", "item", "description", "timestamp", "time", "date", "interval", "load", "demand", "quantity", "qty", "hours") if kw in words)
         return general_hits >= 2
 
-    # If current headers don't look like a valid table header, scan first 20 rows for the true header
     if not looks_like_header(df.columns):
         for idx in range(min(20, len(df))):
             row_vals = df.iloc[idx].values
@@ -154,40 +153,27 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
         for cand in candidates:
             if cand in col_map:
                 return col_map[cand]
-        # 2. Try substring matches (word boundary or clear descriptive match)
+        # 2. Try substring matches
         for cand in candidates:
             for c_low, c_orig in col_map.items():
                 if cand in c_low and not c_low.startswith("unnamed"):
                     return c_orig
         return None
 
-    # Candidate columns
-    col_name = find_col("name", "appliance", "item", "description", "timestamp", "time", "date", "interval", "device", "load", "equipment")
-    col_p = find_col("wattage", "active power", "active_power", "active", "real power", "real_power", "p (kw)", "p (w)", "p(kw)", "p(w)", "p [kw]", "p [w]", "p_kw", "kw", "watt", "watts", "w", "ptotal", "power")
-    col_s = find_col("apparent wattage", "apparent_wattage", "apparent power", "apparent_power", "apparent", "s (kva)", "s (va)", "s(kva)", "s(va)", "s [kva]", "s [va]", "s_kva", "kva", "va", "stotal")
-    col_qty = find_col("quantity", "qty", "count", "num", "units")
-    col_hrs = find_col("hours_per_day", "hours", "hrs", "duration", "runtime", "operating hours", "h/day")
+    # Candidate columns classification
+    col_energy = find_col("energy(kwh)", "energy (kwh)", "daily energy", "total energy", "kwh/day", "energy", "kwh")
+    col_total_p = find_col("total power", "total_power", "total kw", "total_kw", "total w", "total p")
+    col_hrs = find_col("time", "time (hrs)", "time(hrs)", "hours_per_day", "hours", "hrs", "duration", "runtime", "operating hours", "h/day")
+    col_qty = find_col("quantity", "qty", "count", "num", "units", "pcs")
+    col_name = find_col("loads", "load", "name", "appliance", "item", "description", "device", "equipment")
+    col_unit_p = find_col("power(kw)", "power (kw)", "power", "wattage", "active power", "active_power", "active", "kw", "watt", "watts", "w")
+    col_s = find_col("apparent wattage", "apparent_wattage", "apparent power", "apparent_power", "apparent", "s (kva)", "s (va)", "kva", "va")
 
-    # If neither P nor S was found by keywords, fallback to first numeric columns
-    if not col_p and not col_s:
-        numeric_cols = []
-        for c in df.columns:
-            try:
-                s_num = pd.to_numeric(df[c].astype(str).str.replace(",", "").str.replace("$", "").str.strip(), errors="coerce")
-                if s_num.notna().sum() >= max(1, len(df) * 0.4):
-                    numeric_cols.append(c)
-            except Exception:
-                pass
-        if len(numeric_cols) >= 1:
-            col_p = numeric_cols[0]
-        if len(numeric_cols) >= 2 and col_s is None:
-            col_s = numeric_cols[1]
-
-    # Detect if this is a Time-Series log vs. Appliance Schedule
+    # Time-series log detection
     is_time_series = False
-    if col_name and any(kw in str(col_name).lower() for kw in ("time", "date", "timestamp", "interval")):
+    if col_name and any(kw in str(col_name).lower() for kw in ("timestamp", "interval", "date")):
         is_time_series = True
-    elif len(df) >= 15 and not col_qty and not col_hrs:
+    elif len(df) >= 20 and not col_qty and not col_hrs and not col_energy:
         is_time_series = True
 
     def get_val(r, c):
@@ -211,37 +197,50 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
 
     csv_loads = []
     for idx, row in df.iterrows():
-        p_val = 0.0
-        if col_p is not None:
-            raw_p = parse_number(get_val(row, col_p))
+        qty_val = parse_number(get_val(row, col_qty)) if col_qty else 1.0
+        qty = int(qty_val) if (qty_val is not None and qty_val > 0) else 1
+
+        hrs_val = parse_number(get_val(row, col_hrs)) if col_hrs else None
+        energy_val = parse_number(get_val(row, col_energy)) if col_energy else None
+
+        unit_p_w = 0.0
+        # If explicit Total Power column is present
+        if col_total_p is not None:
+            raw_tot = parse_number(get_val(row, col_total_p))
+            if raw_tot is not None and raw_tot > 0:
+                is_kw = "kw" in str(col_total_p).lower() or raw_tot < 500.0
+                unit_p_w = (raw_tot * (1000.0 if is_kw else 1.0)) / qty
+        elif col_unit_p is not None:
+            raw_p = parse_number(get_val(row, col_unit_p))
             if raw_p is not None and raw_p > 0:
-                if col_p and ("kw" in str(col_p).lower() or (is_time_series and raw_p < 150.0 and "w" not in str(col_p).lower())):
-                    p_val = raw_p * 1000.0
-                else:
-                    p_val = raw_p
+                is_kw = "kw" in str(col_unit_p).lower() or (raw_p < 500.0 and "w" not in str(col_unit_p).lower())
+                unit_p_w = raw_p * (1000.0 if is_kw else 1.0)
 
-        s_val = None
-        if col_s is not None:
-            raw_s = parse_number(get_val(row, col_s))
-            if raw_s is not None and raw_s > 0:
-                if col_s and ("kva" in str(col_s).lower() or (raw_s < 150.0 and "va" not in str(col_s).lower())):
-                    s_val = raw_s * 1000.0
-                else:
-                    s_val = raw_s
+        # Fallback to energy / hrs calculation if unit_p_w == 0
+        if unit_p_w == 0.0 and energy_val is not None and energy_val > 0 and hrs_val is not None and hrs_val > 0:
+            unit_p_w = (energy_val * 1000.0) / (qty * hrs_val)
 
-        if p_val > 0 or (s_val is not None and s_val > 0):
+        # Determine operating hours
+        if hrs_val is None or hrs_val <= 0:
+            if energy_val is not None and energy_val > 0 and unit_p_w > 0:
+                hrs_val = (energy_val * 1000.0) / (unit_p_w * qty)
+            else:
+                hrs_val = 12.0 if not is_time_series else 1.0
+
+        if unit_p_w > 0 or (energy_val is not None and energy_val > 0):
             c_name_val = get_val(row, col_name)
-            item_name = str(c_name_val).strip() if (col_name and pd.notna(c_name_val)) else (f"Interval {idx+1}" if is_time_series else f"Item {idx+1}")
-            qty_val = parse_number(get_val(row, col_qty)) if col_qty else 1
-            hrs_val = parse_number(get_val(row, col_hrs)) if col_hrs else 1.0
+            item_name = str(c_name_val).strip() if (col_name and pd.notna(c_name_val) and str(c_name_val).strip()) else f"Load Item {idx+1}"
+
+            explicit_wh = (energy_val * 1000.0) if (energy_val is not None and energy_val > 0) else None
 
             csv_loads.append({
                 "name": item_name,
-                "wattage": p_val if p_val > 0 else (s_val * 0.85 if s_val else 0),
-                "quantity": int(qty_val) if (qty_val is not None and qty_val > 0) else 1,
-                "hours_per_day": float(hrs_val) if (hrs_val is not None and hrs_val > 0) else 1.0,
-                "apparent_wattage": s_val,
-                "is_time_series": is_time_series
+                "wattage": unit_p_w,
+                "quantity": qty,
+                "hours_per_day": float(hrs_val),
+                "apparent_wattage": None,
+                "is_time_series": is_time_series,
+                "explicit_daily_energy_wh": explicit_wh
             })
 
     return csv_loads, is_time_series

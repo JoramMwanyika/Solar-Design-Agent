@@ -54,7 +54,7 @@ class SolarAgent:
     """
 
     def __init__(self):
-        self.version = "4.8"
+        self.version = "5.3"
         self.featherless_token = os.getenv("FEATHERLESS_API_KEY")
         self.featherless_model = os.getenv("FEATHERLESS_MODEL", "deepseek-ai/DeepSeek-V3.1-Terminus")
         self.github_token = os.getenv("GITHUB_TOKEN")
@@ -239,7 +239,22 @@ class SolarAgent:
     # ─────────────────────────────────────────
 
     def process_uploaded_file(self, file_bytes: bytes, filename: str, mime_type: str) -> str:
-        """Processes an uploaded file, extracts site data, and returns a chat message."""
+        """Processes an uploaded file, extracts site data or load profile, and performs sizing immediately if spreadsheet."""
+        ext = filename.lower()
+        if ext.endswith((".csv", ".xlsx", ".xls")):
+            import io
+            import pandas as pd
+            from utils.file_parser import extract_loads_from_dataframe
+            try:
+                df_loads = pd.read_csv(io.BytesIO(file_bytes)) if ext.endswith(".csv") else pd.read_excel(io.BytesIO(file_bytes))
+                df_loads.columns = df_loads.columns.astype(str)
+                csv_loads, is_time_series = extract_loads_from_dataframe(df_loads)
+                if csv_loads:
+                    report_text, _ = self.run_sizing(loads=csv_loads, location=self.project_state.location)
+                    return report_text
+            except Exception as e:
+                print(f"[Spreadsheet parse error in process_uploaded_file]: {e}")
+
         text_content = parse_uploaded_file(file_bytes, filename)
 
         if text_content:
@@ -363,9 +378,10 @@ class SolarAgent:
                 apparent_wattage=float(l["apparent_wattage"]) if l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) else None,
                 power_factor=float(l.get("power_factor", 0.85)) if l.get("power_factor") is not None and self.pd_notna_check(l.get("power_factor")) else 0.85,
                 is_time_series=bool(l.get("is_time_series", False)),
+                explicit_daily_energy_wh=float(l["explicit_daily_energy_wh"]) if l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) else None,
             )
             for l in loads
-            if float(l.get("wattage", 0)) > 0 or (l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) and float(l["apparent_wattage"]) > 0)
+            if float(l.get("wattage", 0)) > 0 or (l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) and float(l["apparent_wattage"]) > 0) or (l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) and float(l["explicit_daily_energy_wh"]) > 0)
         ]
         result = size_system(
             system_type=self.system_type,

@@ -21,9 +21,12 @@ class LoadItem:
     apparent_wattage: Optional[float] = None # Apparent Power S in VA
     power_factor: float = 0.85
     is_time_series: bool = False
+    explicit_daily_energy_wh: Optional[float] = None
 
     @property
     def daily_energy_wh(self) -> float:
+        if self.explicit_daily_energy_wh is not None and self.explicit_daily_energy_wh > 0:
+            return self.explicit_daily_energy_wh
         return self.wattage * self.quantity * self.hours_per_day
 
     @property
@@ -104,6 +107,8 @@ class SizingResult:
     inverter_kw: float = 0.0
     inverter_kva: float = 0.0
     inverter_qty: int = 1
+    inverter_brand: str = "Huawei SUN2000 Series"
+    voltage_architecture: str = "High Voltage (HV: 1000V DC)"
     mppt_rating_per_unit: int = 60
     mppt_qty: int = 1
     system_voltage_dc: int = 48
@@ -298,29 +303,7 @@ def size_system(
     panel_qty = max(1, math.ceil(required_pv_kwp / single_module_kw))
     total_pv_kwp = (panel_qty * panel_wp) / 1000.0
     
-    # 3. Stringing Calculation (Workbook Max panels per string equation)
-    # Max panels = floor( Max Vin / (Voc * (1 + K * (Tmin - 25))) )
-    voc_adjusted = panel_voc * (1.0 + temp_coeff_k * (tmin_celsius - 25.0))
-    max_panels_per_string = max(1, math.floor(max_inverter_vin / voc_adjusted))
-    
-    # Target 12-19 modules per string for HV 1000V inverters
-    panels_per_string = min(max_panels_per_string, max(8, min(16, panel_qty // 2 or 1)))
-    total_strings = math.ceil(panel_qty / panels_per_string)
-    string_voltage_v = panels_per_string * panel_vmp
-    
-    stringing = StringingResult(
-        panel_wp=panel_wp,
-        panel_voc=panel_voc,
-        max_inverter_vin=max_inverter_vin,
-        tmin_celsius=tmin_celsius,
-        temp_coeff_k=temp_coeff_k,
-        max_panels_per_string=max_panels_per_string,
-        panels_per_mppt=panels_per_string * 2,
-        total_strings=total_strings,
-        string_voltage_v=string_voltage_v,
-    )
-
-    # 4. Inverter Sizing
+    # 3. Inverter Brand, Rating & Architecture Selection
     # When sizing for Hybrid/Off-Grid: use Apparent Power S (VA -> kVA)
     # When sizing for Grid-Tied: use Active Power P (W -> kW)
     if system_type in ("off-grid", "hybrid"):
@@ -367,6 +350,54 @@ def size_system(
     inverter_kw_std = float(best_size)
     inverter_qty = int(best_qty)
     inverter_kva = inverter_kw_std if system_type in ("off-grid", "hybrid") else inverter_kw_std / 0.9
+
+    # Enforce User Directives for Inverter Brand & Architecture:
+    # 1. Grid-tied -> Huawei inverters
+    # 2. Off-grid / Hybrid -> Deye or Solis inverters (Check Low Voltage vs High Voltage)
+    if system_type == "grid-tied":
+        inverter_brand = "Huawei SUN2000 Commercial Series"
+        voltage_architecture = "High Voltage (HV: 1100V DC)"
+        max_inverter_vin = 1100.0
+        num_mppts = 10 if inverter_kw_std >= 100 else (6 if inverter_kw_std >= 80 else 4)
+    else:
+        # Off-Grid / Hybrid
+        if system_voltage_dc <= 48 and inverter_kw_std <= 15:
+            inverter_brand = "Deye / Solis Low Voltage (LV) Hybrid"
+            voltage_architecture = "Low Voltage (LV: 48V BESS / 500V DC)"
+            max_inverter_vin = 500.0
+            num_mppts = 2
+        else:
+            inverter_brand = "Deye / Solis High Voltage (HV) Hybrid"
+            voltage_architecture = "High Voltage (HV: 1000V DC / 384V BESS)"
+            max_inverter_vin = 1000.0
+            num_mppts = 8 if inverter_kw_std >= 80 else (6 if inverter_kw_std >= 30 else 4)
+
+    # 4. Stringing & MPPT Calculations
+    # Panels per MPPT per User Directive:
+    # (Max PV Input Power / Number of MPPTs) / Power of selected panel
+    max_pv_input_kw = inverter_kw_std * (1.3 if system_voltage_dc <= 48 else 1.5)
+    max_power_per_mppt_kw = max_pv_input_kw / num_mppts
+    panels_per_mppt = max(1, math.floor(max_power_per_mppt_kw / single_module_kw))
+
+    # Max panels per string = floor( Max Vin / (Voc * (1 + K * (Tmin - 25))) )
+    voc_adjusted = panel_voc * (1.0 + temp_coeff_k * (tmin_celsius - 25.0))
+    max_panels_per_string = max(1, math.floor(max_inverter_vin / voc_adjusted))
+    
+    panels_per_string = min(max_panels_per_string, max(8, min(16, panel_qty // 2 or 1)))
+    total_strings = math.ceil(panel_qty / panels_per_string)
+    string_voltage_v = panels_per_string * panel_vmp
+    
+    stringing = StringingResult(
+        panel_wp=panel_wp,
+        panel_voc=panel_voc,
+        max_inverter_vin=max_inverter_vin,
+        tmin_celsius=tmin_celsius,
+        temp_coeff_k=temp_coeff_k,
+        max_panels_per_string=max_panels_per_string,
+        panels_per_mppt=panels_per_mppt,
+        total_strings=total_strings,
+        string_voltage_v=string_voltage_v,
+    )
     
     # 5. Battery Sizing (Off-Grid / Hybrid)
     battery_qty = 0
@@ -458,8 +489,10 @@ def size_system(
         inverter_kw=inverter_kw_std,
         inverter_kva=inverter_kva,
         inverter_qty=inverter_qty,
+        inverter_brand=inverter_brand,
+        voltage_architecture=voltage_architecture,
         mppt_rating_per_unit=max(60, math.ceil(panel_imp * 2)),
-        mppt_qty=total_strings,
+        mppt_qty=num_mppts * inverter_qty,
         system_voltage_dc=system_voltage_dc,
         cable_sizing=cable_sizing,
     )
@@ -491,16 +524,18 @@ def format_sizing_summary(result: SizingResult) -> str:
         f"| **Proposed DC Capacity** | `{result.total_pv_kwp:.2f} kWp` | Based on target daily energy & peak sun hours |",
         f"| **Selected Module Rating** | `{result.panel_wp} Wp` (`{result.panel_wp/1000:.3f} kWp`) | High-efficiency monocrystalline PV module |",
         f"| **Total PV Modules Required** | `{result.panel_qty} pcs` | Rule: `ceil({result.total_pv_kwp:.2f} / {result.panel_wp/1000:.3f})` |",
+        f"| **Inverter Brand / Family** | `{result.inverter_brand}` | Grid-Tied -> Huawei | Hybrid/Off-Grid -> Deye / Solis |",
+        f"| **Voltage Architecture** | `{result.voltage_architecture}` | Low Voltage (LV 48V) vs High Voltage (HV) |",
         f"| **Proposed Inverter Size** | `{result.inverter_kw:.1f} kW` (`{result.inverter_kva:.1f} kVA`) | Sized with `1.25x` safety factor |",
         f"| **No. of Inverters** | `{result.inverter_qty} pcs` | Total AC Capacity: `{result.inverter_kw * result.inverter_qty:.1f} kW` |",
         "",
         "### 🔗 2. Stringing & MPPT Configuration",
         "| Parameter | Specification | Calculation / Reference |",
         "|---|---|---|",
-        f"| **Max Inverter DC Input ($V_{{in,max}}$)** | `1000 V` | Maximum allowable inverter input voltage |",
-        f"| **Panel Open Circuit Voltage ($V_{{oc}}$)** | `49.28 V` (or spec) | Standard module $V_{{oc}}$ at STC |",
+        f"| **Max Inverter DC Input ($V_{{in,max}}$)** | `{result.stringing.max_inverter_vin:.0f} V DC` | Retreived from Inverter Datasheet |",
+        f"| **Panel Open Circuit Voltage ($V_{{oc}}$)** | `{result.stringing.panel_voc:.2f} V DC` | Retreived from Panel Datasheet |",
         f"| **Max Panels in a String** | `{result.stringing.max_panels_per_string} pcs` | Formula: `floor(Vin_max / (Voc * (1 + K*(Tmin - 25°C))))` |",
-        f"| **Panels per MPPT** | `{result.stringing.panels_per_mppt} panels` | Based on max input power per MPPT (`16.25 kW`) |",
+        f"| **Panels per MPPT** | `{result.stringing.panels_per_mppt} panels/MPPT` | Rule: `floor((Max PV Input Power / No. of MPPTs) / Panel kWp)` |",
         f"| **Total Number of Strings** | `{result.stringing.total_strings} strings` | Recommended stringing distribution |",
         f"| **Operating String Voltage** | `{result.stringing.string_voltage_v:.1f} V DC` | Optimal MPPT tracking window |",
     ]
