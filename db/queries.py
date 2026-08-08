@@ -138,6 +138,13 @@ def delete_chat_session(session_id: str) -> None:
         _exec(_client().table("chat_sessions").delete().eq("id", session_id))
 
 
+def update_chat_session_title(session_id: str, title: str) -> None:
+    if is_valid_uuid(session_id):
+        _exec(_client().table("chat_sessions").update({"title": title})\
+            .eq("id", session_id))
+
+
+
 # ─────────────────────────────────────────────
 # System Designs / BOQs
 # ─────────────────────────────────────────────

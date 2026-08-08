@@ -21,7 +21,7 @@ try:
 except ImportError:
     HAS_OPENAI = False
 
-from agent.system_sizer import size_system, LoadItem, format_sizing_summary, SizingResult
+from agent.system_sizer import size_system, size_system_by_load_profile, size_system_by_logged_data, size_system_by_bill_analysis, LoadItem, format_sizing_summary, SizingResult
 from agent.boq_generator import generate_boq_excel, boq_to_markdown_table, generate_boq, generate_sizing_and_design_workbook
 from agent.report_analyzer import extract_from_text, extract_from_image, format_extracted_data
 from utils.file_parser import parse_uploaded_file
@@ -44,7 +44,8 @@ SIZING_PROMPT = _load_prompt("sizing_prompt.txt")
 BOQ_PROMPT    = _load_prompt("boq_prompt.txt")
 
 DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
-FALLBACK_GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest"]
+FALLBACK_GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-pro"]
+
 
 
 class SolarAgent:
@@ -347,6 +348,39 @@ class SolarAgent:
             return False
         return True
 
+    def _process_sizing_result(self, result: SizingResult, location: str) -> tuple[str, SizingResult]:
+        self.last_sizing_result = result
+        
+        # Sync calculated values into ProjectState
+        self.project_state.daily_energy_kwh = result.daily_energy_wh / 1000.0
+        self.project_state.peak_demand_kw = result.total_peak_power_w / 1000.0
+        self.project_state.total_pv_kwp = result.total_pv_kwp
+        self.project_state.panel_qty = result.panel_qty
+        self.project_state.inverter_kw = result.inverter_kw
+        self.project_state.inverter_kva = result.inverter_kva
+        self.project_state.inverter_qty = result.inverter_qty
+        self.project_state.battery_qty = result.battery_qty
+        self.project_state.total_storage_kwh = result.total_storage_kwh
+        self.project_state.usable_storage_kwh = getattr(result, "usable_storage_kwh", result.total_storage_kwh * result.dod)
+        self.project_state.peak_sun_hours = result.peak_sun_hours
+
+        md = format_sizing_summary(result)
+        self.last_design_workbook = self.get_or_create_design_workbook(location=location or "East Africa")
+        self.last_boq_items = self._template_boq(result)
+        self.last_boq_excel = generate_boq_excel(self.last_boq_items)
+
+        # Store system sizing result in conversation history
+        sizing_msg = f"⚡ **System sizing completed.** Results:\n{md}"
+        if self.active_engine in ("featherless", "github-gpt-4o"):
+            self.gpt_history.append({"role": "assistant", "content": sizing_msg})
+        elif self.gemini_chat:
+            try:
+                self.gemini_chat.send_message(f"[System Sizing Complete]:\n{md}")
+            except Exception:
+                pass
+
+        return md, result
+
     def run_sizing(
         self,
         loads: list[dict],
@@ -360,7 +394,6 @@ class SolarAgent:
         mppt_rating: int = 60,
     ) -> tuple[str, SizingResult]:
         """Direct sizing call (used from UI quick form or CSV load upload)."""
-        # Store loads in ProjectState for multiagent context
         self.project_state.loads = loads
         self.project_state.location = location or "East Africa"
         self.project_state.days_of_autonomy = float(days_of_autonomy)
@@ -393,37 +426,137 @@ class SolarAgent:
             battery_voltage=float(battery_voltage),
             panel_wp=int(panel_wp),
         )
-        self.last_sizing_result = result
-        
-        # Sync calculated values into ProjectState
-        self.project_state.daily_energy_kwh = result.daily_energy_wh / 1000.0
-        self.project_state.peak_demand_kw = result.total_peak_power_w / 1000.0
-        self.project_state.total_pv_kwp = result.total_pv_kwp
-        self.project_state.panel_qty = result.panel_qty
-        self.project_state.inverter_kw = result.inverter_kw
-        self.project_state.inverter_kva = result.inverter_kva
-        self.project_state.inverter_qty = result.inverter_qty
-        self.project_state.battery_qty = result.battery_qty
-        self.project_state.total_storage_kwh = result.total_storage_kwh
-        self.project_state.usable_storage_kwh = getattr(result, "usable_storage_kwh", result.total_storage_kwh * result.dod)
-        self.project_state.peak_sun_hours = result.peak_sun_hours
+        return self._process_sizing_result(result, location)
 
-        md = format_sizing_summary(result)
-        self.last_design_workbook = self.get_or_create_design_workbook(location=location or "East Africa")
-        self.last_boq_items = self._template_boq(result)
-        self.last_boq_excel = generate_boq_excel(self.last_boq_items)
+    def run_sizing_by_load_profile(
+        self,
+        loads: list[dict],
+        location: str = "East Africa",
+        days_of_autonomy: float = 2.0,
+        dod: float = 0.8,
+        system_voltage_dc: int = 48,
+        battery_voltage: float = 51.2,
+        battery_ah_rating: int = 280,
+        panel_wp: int = 625,
+        mppt_rating: int = 60,
+    ) -> tuple[str, SizingResult]:
+        """Direct sizing call using Load Profile agent sizing logic."""
+        self.project_state.loads = loads
+        self.project_state.location = location or "East Africa"
+        self.project_state.days_of_autonomy = float(days_of_autonomy)
+        self.project_state.dod = float(dod)
+        self.project_state.system_voltage_dc = int(system_voltage_dc)
+        self.project_state.panel_wp = int(panel_wp)
+        self.project_state.system_type = self.system_type
 
-        # Store system sizing result in conversation history
-        sizing_msg = f"⚡ **System sizing completed.** Results:\n{md}"
-        if self.active_engine in ("featherless", "github-gpt-4o"):
-            self.gpt_history.append({"role": "assistant", "content": sizing_msg})
-        elif self.gemini_chat:
-            try:
-                self.gemini_chat.send_message(f"[System Sizing Complete]:\n{md}")
-            except Exception:
-                pass
+        load_items = [
+            LoadItem(
+                name=str(l.get("name", "Load")),
+                wattage=float(l.get("wattage", 0)),
+                quantity=int(l.get("quantity", 1)),
+                hours_per_day=float(l.get("hours_per_day", 1)),
+                apparent_wattage=float(l["apparent_wattage"]) if l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) else None,
+                power_factor=float(l.get("power_factor", 0.85)) if l.get("power_factor") is not None and self.pd_notna_check(l.get("power_factor")) else 0.85,
+                is_time_series=False,
+                explicit_daily_energy_wh=float(l["explicit_daily_energy_wh"]) if l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) else None,
+            )
+            for l in loads
+            if float(l.get("wattage", 0)) > 0 or (l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) and float(l["apparent_wattage"]) > 0) or (l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) and float(l["explicit_daily_energy_wh"]) > 0)
+        ]
+        result = size_system_by_load_profile(
+            system_type=self.system_type,
+            loads=load_items,
+            location=location or "East Africa",
+            days_of_autonomy=float(days_of_autonomy),
+            dod=float(dod),
+            system_voltage_dc=int(system_voltage_dc),
+            battery_voltage=float(battery_voltage),
+            panel_wp=int(panel_wp),
+        )
+        return self._process_sizing_result(result, location)
 
-        return md, result
+    def run_sizing_by_logged_data(
+        self,
+        loads: list[dict],
+        location: str = "East Africa",
+        days_of_autonomy: float = 2.0,
+        dod: float = 0.8,
+        system_voltage_dc: int = 48,
+        battery_voltage: float = 51.2,
+        battery_ah_rating: int = 280,
+        panel_wp: int = 625,
+        mppt_rating: int = 60,
+    ) -> tuple[str, SizingResult]:
+        """Direct sizing call using Logged Data agent sizing logic."""
+        self.project_state.loads = loads
+        self.project_state.location = location or "East Africa"
+        self.project_state.days_of_autonomy = float(days_of_autonomy)
+        self.project_state.dod = float(dod)
+        self.project_state.system_voltage_dc = int(system_voltage_dc)
+        self.project_state.panel_wp = int(panel_wp)
+        self.project_state.system_type = self.system_type
+
+        load_items = [
+            LoadItem(
+                name=str(l.get("name", "Load")),
+                wattage=float(l.get("wattage", 0)),
+                quantity=int(l.get("quantity", 1)),
+                hours_per_day=float(l.get("hours_per_day", 1)),
+                apparent_wattage=float(l["apparent_wattage"]) if l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) else None,
+                power_factor=float(l.get("power_factor", 0.85)) if l.get("power_factor") is not None and self.pd_notna_check(l.get("power_factor")) else 0.85,
+                is_time_series=True,
+                explicit_daily_energy_wh=float(l["explicit_daily_energy_wh"]) if l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) else None,
+            )
+            for l in loads
+            if float(l.get("wattage", 0)) > 0 or (l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) and float(l["apparent_wattage"]) > 0) or (l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) and float(l["explicit_daily_energy_wh"]) > 0)
+        ]
+        result = size_system_by_logged_data(
+            system_type=self.system_type,
+            loads=load_items,
+            location=location or "East Africa",
+            days_of_autonomy=float(days_of_autonomy),
+            dod=float(dod),
+            system_voltage_dc=int(system_voltage_dc),
+            battery_voltage=float(battery_voltage),
+            panel_wp=int(panel_wp),
+        )
+        return self._process_sizing_result(result, location)
+
+    def run_sizing_by_bill_analysis(
+        self,
+        monthly_energy_kwh: float,
+        billing_days: int = 30,
+        customer_type: str = "Residential",
+        max_demand_kw: float = 0.0,
+        location: str = "East Africa",
+        days_of_autonomy: float = 2.0,
+        dod: float = 0.8,
+        system_voltage_dc: int = 48,
+        battery_voltage: float = 51.2,
+        panel_wp: int = 625,
+    ) -> tuple[str, SizingResult]:
+        """Direct sizing call using Bill Analysis agent sizing logic."""
+        self.project_state.location = location or "East Africa"
+        self.project_state.days_of_autonomy = float(days_of_autonomy)
+        self.project_state.dod = float(dod)
+        self.project_state.system_voltage_dc = int(system_voltage_dc)
+        self.project_state.panel_wp = int(panel_wp)
+        self.project_state.system_type = self.system_type
+
+        result = size_system_by_bill_analysis(
+            system_type=self.system_type,
+            monthly_energy_kwh=float(monthly_energy_kwh),
+            billing_days=int(billing_days),
+            customer_type=customer_type,
+            max_demand_kw=float(max_demand_kw),
+            location=location or "East Africa",
+            days_of_autonomy=float(days_of_autonomy),
+            dod=float(dod),
+            system_voltage_dc=int(system_voltage_dc),
+            battery_voltage=float(battery_voltage),
+            panel_wp=int(panel_wp),
+        )
+        return self._process_sizing_result(result, location)
 
     # ─────────────────────────────────────────
     # BOQ & Design Workbook Generation

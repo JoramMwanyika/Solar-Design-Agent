@@ -202,91 +202,305 @@ def size_system(
     ac_cable_distance_m: float = 100.0,
 ) -> SizingResult:
     """
-    Core sizing engine implementing precise workbook calculations.
+    Facade router routing system sizing to specialized engines based on input characteristics.
+    """
+    is_logged_data = len(loads) > 0 and any(l.is_time_series for l in loads)
+    if is_logged_data:
+        return size_system_by_logged_data(
+            system_type=system_type,
+            loads=loads,
+            location=location,
+            days_of_autonomy=days_of_autonomy,
+            dod=dod,
+            system_voltage_dc=system_voltage_dc,
+            battery_voltage=battery_voltage,
+            battery_module_kwh=battery_module_kwh,
+            panel_wp=panel_wp,
+            panel_voc=panel_voc,
+            panel_vmp=panel_vmp,
+            panel_imp=panel_imp,
+            max_inverter_vin=max_inverter_vin,
+            tmin_celsius=tmin_celsius,
+            temp_coeff_k=temp_coeff_k,
+            dc_cable_distance_m=dc_cable_distance_m,
+            ac_cable_distance_m=ac_cable_distance_m,
+        )
+    else:
+        return size_system_by_load_profile(
+            system_type=system_type,
+            loads=loads,
+            location=location,
+            days_of_autonomy=days_of_autonomy,
+            dod=dod,
+            system_voltage_dc=system_voltage_dc,
+            battery_voltage=battery_voltage,
+            battery_module_kwh=battery_module_kwh,
+            panel_wp=panel_wp,
+            panel_voc=panel_voc,
+            panel_vmp=panel_vmp,
+            panel_imp=panel_imp,
+            max_inverter_vin=max_inverter_vin,
+            tmin_celsius=tmin_celsius,
+            temp_coeff_k=temp_coeff_k,
+            dc_cable_distance_m=dc_cable_distance_m,
+            ac_cable_distance_m=ac_cable_distance_m,
+        )
+
+
+def size_system_by_load_profile(
+    system_type: str,
+    loads: list[LoadItem],
+    location: str = "East Africa",
+    days_of_autonomy: float = 2.0,
+    dod: float = 0.8,
+    system_voltage_dc: int = 48,
+    battery_voltage: float = 51.2,
+    battery_module_kwh: float = 14.33,
+    panel_wp: int = 625,
+    panel_voc: float = 49.28,
+    panel_vmp: float = 41.5,
+    panel_imp: float = 15.06,
+    max_inverter_vin: float = 1000.0,
+    tmin_celsius: float = 10.0,
+    temp_coeff_k: float = -0.0029,
+    dc_cable_distance_m: float = 50.0,
+    ac_cable_distance_m: float = 100.0,
+) -> SizingResult:
+    """
+    Sizing Agent specifically for Load Profile data (Appliance list).
+    """
+    # Standard Appliance Schedule: Peak is SUM of all connected items, Daily Energy is SUM(item * hours)
+    total_peak_w = sum(l.total_wattage for l in loads)
+    total_peak_va = sum(l.total_va for l in loads)
+    daily_energy_wh = sum(l.daily_energy_wh for l in loads)
+
+    return _execute_core_sizing_math(
+        system_type=system_type,
+        daily_energy_wh=daily_energy_wh,
+        total_peak_w=total_peak_w,
+        total_peak_va=total_peak_va,
+        location=location,
+        days_of_autonomy=days_of_autonomy,
+        dod=dod,
+        system_voltage_dc=system_voltage_dc,
+        battery_voltage=battery_voltage,
+        battery_module_kwh=battery_module_kwh,
+        panel_wp=panel_wp,
+        panel_voc=panel_voc,
+        panel_vmp=panel_vmp,
+        panel_imp=panel_imp,
+        max_inverter_vin=max_inverter_vin,
+        tmin_celsius=tmin_celsius,
+        temp_coeff_k=temp_coeff_k,
+        dc_cable_distance_m=dc_cable_distance_m,
+        ac_cable_distance_m=ac_cable_distance_m,
+    )
+
+
+def size_system_by_logged_data(
+    system_type: str,
+    loads: list[LoadItem],
+    location: str = "East Africa",
+    days_of_autonomy: float = 2.0,
+    dod: float = 0.8,
+    system_voltage_dc: int = 48,
+    battery_voltage: float = 51.2,
+    battery_module_kwh: float = 14.33,
+    panel_wp: int = 625,
+    panel_voc: float = 49.28,
+    panel_vmp: float = 41.5,
+    panel_imp: float = 15.06,
+    max_inverter_vin: float = 1000.0,
+    tmin_celsius: float = 10.0,
+    temp_coeff_k: float = -0.0029,
+    dc_cable_distance_m: float = 50.0,
+    ac_cable_distance_m: float = 100.0,
+) -> SizingResult:
+    """
+    Sizing Agent specifically for time-series Logged data (SCADA/meter files).
+    """
+    import dateutil.parser
+    
+    # 1. Group by day
+    days_data = {}
+    for l in loads:
+        try:
+            dt = dateutil.parser.parse(l.name, fuzzy=True)
+            date_str = dt.date().isoformat()
+            dow = dt.weekday() # 0 is Monday, 6 is Sunday
+        except Exception:
+            date_str = "unknown"
+            dow = 0
+        
+        # Filter weekends by default to match multiagent logic
+        if dow < 5:
+            if date_str not in days_data:
+                days_data[date_str] = []
+            days_data[date_str].append(l)
+    
+    # Remove "unknown" if there are valid days
+    if len(days_data) > 1 and "unknown" in days_data:
+        del days_data["unknown"]
+        
+    # 2. Determine interval duration (seconds & minutes) from timestamp difference or row count
+    interval_seconds = 3600.0 # fallback: 1 hour
+    for d_str, d_loads in days_data.items():
+        if d_str != "unknown" and len(d_loads) >= 2:
+            try:
+                dt1 = dateutil.parser.parse(d_loads[0].name, fuzzy=True)
+                dt2 = dateutil.parser.parse(d_loads[1].name, fuzzy=True)
+                diff_sec = abs((dt2 - dt1).total_seconds())
+                if 1.0 <= diff_sec <= 7200.0:
+                    interval_seconds = diff_sec
+                    break
+            except Exception:
+                pass
+
+    if interval_seconds == 3600.0:
+        for d_str, d_loads in days_data.items():
+            if len(d_loads) > 5:
+                calc_sec = 86400.0 / len(d_loads)
+                if 1.0 <= calc_sec <= 7200.0:
+                    interval_seconds = calc_sec
+                    break
+
+    interval_minutes = interval_seconds / 60.0
+    delta_t_hours = interval_seconds / 3600.0 # (interval_minutes / 60.0)
+
+    # 3. Sum data for each day, compare days, and select day with MAXIMUM total power sum
+    max_power_sum = -1.0
+    max_energy = -1.0
+    best_day_loads = []
+    for d_str, d_loads in days_data.items():
+        if d_str == "unknown":
+            p_sum = sum(l.total_wattage for l in d_loads)
+            day_energy = (p_sum / len(d_loads)) * 24.0 if d_loads else 0.0
+        else:
+            p_sum = sum(l.total_wattage for l in d_loads)
+            day_energy = p_sum * delta_t_hours
+            
+        if p_sum > max_power_sum:
+            max_power_sum = p_sum
+            max_energy = day_energy
+            best_day_loads = d_loads
+            
+    if not best_day_loads:
+        best_day_loads = loads
+        max_energy = (sum(l.total_wattage for l in loads) / max(1, len(loads))) * 24.0
+        
+    total_peak_w = max((l.total_wattage for l in best_day_loads), default=0.0)
+    total_peak_va = max((l.total_va for l in best_day_loads), default=0.0)
+    daily_energy_wh = max_energy
+
+    return _execute_core_sizing_math(
+        system_type=system_type,
+        daily_energy_wh=daily_energy_wh,
+        total_peak_w=total_peak_w,
+        total_peak_va=total_peak_va,
+        location=location,
+        days_of_autonomy=days_of_autonomy,
+        dod=dod,
+        system_voltage_dc=system_voltage_dc,
+        battery_voltage=battery_voltage,
+        battery_module_kwh=battery_module_kwh,
+        panel_wp=panel_wp,
+        panel_voc=panel_voc,
+        panel_vmp=panel_vmp,
+        panel_imp=panel_imp,
+        max_inverter_vin=max_inverter_vin,
+        tmin_celsius=tmin_celsius,
+        temp_coeff_k=temp_coeff_k,
+        dc_cable_distance_m=dc_cable_distance_m,
+        ac_cable_distance_m=ac_cable_distance_m,
+    )
+
+
+def size_system_by_bill_analysis(
+    system_type: str,
+    monthly_energy_kwh: float,
+    billing_days: int = 30,
+    customer_type: str = "Residential",
+    max_demand_kw: float = 0.0,
+    location: str = "East Africa",
+    days_of_autonomy: float = 2.0,
+    dod: float = 0.8,
+    system_voltage_dc: int = 48,
+    battery_voltage: float = 51.2,
+    battery_module_kwh: float = 14.33,
+    panel_wp: int = 625,
+    panel_voc: float = 49.28,
+    panel_vmp: float = 41.5,
+    panel_imp: float = 15.06,
+    max_inverter_vin: float = 1000.0,
+    tmin_celsius: float = 10.0,
+    temp_coeff_k: float = -0.0029,
+    dc_cable_distance_m: float = 50.0,
+    ac_cable_distance_m: float = 100.0,
+) -> SizingResult:
+    """
+    Sizing Agent specifically for monthly utility bill analysis.
+    """
+    # 1. Energy Analysis
+    daily_energy_wh = (monthly_energy_kwh / max(1, billing_days)) * 1000.0
+    
+    # Estimate peak demand if not provided
+    if max_demand_kw <= 0:
+        lf = 0.5 if customer_type == "Commercial" else (0.7 if customer_type == "Industrial" else 0.3)
+        peak_w = (daily_energy_wh / 24.0) / lf
+    else:
+        peak_w = max_demand_kw * 1000.0
+        
+    # Estimate peak apparent demand (assuming PF = 0.85)
+    peak_va = peak_w / 0.85
+
+    return _execute_core_sizing_math(
+        system_type=system_type,
+        daily_energy_wh=daily_energy_wh,
+        total_peak_w=peak_w,
+        total_peak_va=peak_va,
+        location=location,
+        days_of_autonomy=days_of_autonomy,
+        dod=dod,
+        system_voltage_dc=system_voltage_dc,
+        battery_voltage=battery_voltage,
+        battery_module_kwh=battery_module_kwh,
+        panel_wp=panel_wp,
+        panel_voc=panel_voc,
+        panel_vmp=panel_vmp,
+        panel_imp=panel_imp,
+        max_inverter_vin=max_inverter_vin,
+        tmin_celsius=tmin_celsius,
+        temp_coeff_k=temp_coeff_k,
+        dc_cable_distance_m=dc_cable_distance_m,
+        ac_cable_distance_m=ac_cable_distance_m,
+    )
+
+
+def _execute_core_sizing_math(
+    system_type: str,
+    daily_energy_wh: float,
+    total_peak_w: float,
+    total_peak_va: float,
+    location: str,
+    days_of_autonomy: float,
+    dod: float,
+    system_voltage_dc: int,
+    battery_voltage: float,
+    battery_module_kwh: float,
+    panel_wp: int,
+    panel_voc: float,
+    panel_vmp: float,
+    panel_imp: float,
+    max_inverter_vin: float,
+    tmin_celsius: float,
+    temp_coeff_k: float,
+    dc_cable_distance_m: float,
+    ac_cable_distance_m: float,
+) -> SizingResult:
+    """
+    Unified core calculation engine executing precise workbook equations.
     """
     psh = get_psh(location)
-    
-    # Check if loads represent a time-series meter log
-    is_logged_data = len(loads) > 0 and any(l.is_time_series for l in loads)
-    
-    if is_logged_data:
-        import dateutil.parser
-        
-        # 1. Group by day
-        days_data = {}
-        for l in loads:
-            try:
-                dt = dateutil.parser.parse(l.name, fuzzy=True)
-                date_str = dt.date().isoformat()
-                dow = dt.weekday() # 0 is Monday, 6 is Sunday
-            except Exception:
-                date_str = "unknown"
-                dow = 0
-            
-            # Filter weekends by default to match multiagent logic
-            if dow < 5:
-                if date_str not in days_data:
-                    days_data[date_str] = []
-                days_data[date_str].append(l)
-        
-        # Remove "unknown" if there are valid days
-        if len(days_data) > 1 and "unknown" in days_data:
-            del days_data["unknown"]
-            
-        # 2. Determine interval duration (seconds & minutes) from timestamp difference or row count
-        interval_seconds = 3600.0 # fallback: 1 hour
-        for d_str, d_loads in days_data.items():
-            if d_str != "unknown" and len(d_loads) >= 2:
-                try:
-                    dt1 = dateutil.parser.parse(d_loads[0].name, fuzzy=True)
-                    dt2 = dateutil.parser.parse(d_loads[1].name, fuzzy=True)
-                    diff_sec = abs((dt2 - dt1).total_seconds())
-                    if 1.0 <= diff_sec <= 7200.0:
-                        interval_seconds = diff_sec
-                        break
-                except Exception:
-                    pass
-
-        if interval_seconds == 3600.0:
-            for d_str, d_loads in days_data.items():
-                if len(d_loads) > 5:
-                    calc_sec = 86400.0 / len(d_loads)
-                    if 1.0 <= calc_sec <= 7200.0:
-                        interval_seconds = calc_sec
-                        break
-
-        interval_minutes = interval_seconds / 60.0
-        delta_t_hours = interval_seconds / 3600.0 # (interval_minutes / 60.0)
-
-        # 3. Sum data for each day, compare days, and select day with MAXIMUM total power sum
-        max_power_sum = -1.0
-        max_energy = -1.0
-        best_day_loads = []
-        for d_str, d_loads in days_data.items():
-            if d_str == "unknown":
-                p_sum = sum(l.total_wattage for l in d_loads)
-                day_energy = (p_sum / len(d_loads)) * 24.0 if d_loads else 0.0
-            else:
-                p_sum = sum(l.total_wattage for l in d_loads)
-                day_energy = p_sum * delta_t_hours
-                
-            if p_sum > max_power_sum:
-                max_power_sum = p_sum
-                max_energy = day_energy
-                best_day_loads = d_loads
-                
-        if not best_day_loads:
-            best_day_loads = loads
-            max_energy = (sum(l.total_wattage for l in loads) / max(1, len(loads))) * 24.0
-            
-        total_peak_w = max((l.total_wattage for l in best_day_loads), default=0.0)
-        total_peak_va = max((l.total_va for l in best_day_loads), default=0.0)
-        daily_energy_wh = max_energy
-    else:
-        # Standard Appliance Schedule: Peak is SUM of all connected items, Daily Energy is SUM(item * hours)
-        total_peak_w = sum(l.total_wattage for l in loads)
-        total_peak_va = sum(l.total_va for l in loads)
-        daily_energy_wh = sum(l.daily_energy_wh for l in loads)
     
     # Direct Sizing: No losses included per explicit user directive (Simply Energy / Peak Sun Hours)
     pr = 1.0

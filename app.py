@@ -50,6 +50,8 @@ def make_arrow_compatible(df):
     return df_clean
 
 # ── Global styles (Pixel-accurate Dark Dashboard) ────────
+st.markdown('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">', unsafe_allow_html=True)
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -59,6 +61,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .stApp {
     background-color: #0d1117 !important;
     color: #94a3b8;
+    padding-bottom: 70px !important; /* Prevents viewport clipping by fixed taskbar */
 }
 .stApp > div { background-color: #0d1117 !important; }
 
@@ -88,26 +91,62 @@ p, li { color: #94a3b8; line-height: 1.6; }
 strong, b { color: #e2e8f0 !important; }
 label { color: #94a3b8 !important; }
 
-/* === SIDEBAR NAV ITEMS === */
-.nav-item {
-    padding: 9px 14px;
-    margin: 2px 0;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    color: #94a3b8;
-    font-size: 0.88rem;
-    font-weight: 450;
-    display: flex;
-    align-items: center;
-    gap: 11px;
+/* === WINDOWS-STYLE TASKBAR AT SCREEN BOTTOM === */
+.windows-taskbar {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    background: #0f172a !important;
+    border-top: 1px solid #1e293b !important;
+    padding: 8px 0 !important;
+    z-index: 99999 !important;
+    gap: 20px !important;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5) !important;
 }
-.nav-item:hover { background-color: #1e2a3a; color: #f1f5f9; }
-.nav-active {
-    background-color: rgba(74, 222, 128, 0.08);
-    color: #4ade80 !important;
-    font-weight: 500;
-    border-left: 2px solid #4ade80;
+.taskbar-icon-item {
+    font-size: 1.25rem !important;
+    color: #94a3b8 !important;
+    cursor: pointer !important;
+    position: relative !important;
+    padding: 8px !important;
+    border-radius: 6px !important;
+    transition: all 0.2s ease !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    width: 36px !important;
+    height: 36px !important;
+}
+.taskbar-icon-item:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #38bdf8 !important;
+    transform: translateY(-2px) !important;
+}
+/* Windows 11 style active underline indicator */
+.taskbar-icon-item::after {
+    content: '' !important;
+    position: absolute !important;
+    bottom: 2px !important;
+    left: 30% !important;
+    width: 40% !important;
+    height: 3px !important;
+    background: transparent !important;
+    border-radius: 2px !important;
+    transition: all 0.2s ease !important;
+}
+.taskbar-icon-item:hover::after {
+    background: #38bdf8 !important;
+}
+.taskbar-icon-active {
+    color: #38bdf8 !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+.taskbar-icon-active::after {
+    background: #10b981 !important;
 }
 
 /* Pro Plan card */
@@ -276,162 +315,162 @@ agent: SolarAgent = st.session_state["agent"]
 user_id = st.session_state["user"].id
 projects = get_user_projects(user_id)
 
+def save_current_project_state():
+    proj_id = st.session_state.get("current_project_id")
+    user_id = st.session_state.get("user").id if st.session_state.get("user") else None
+    if proj_id and proj_id != "__new__" and user_id:
+        try:
+            curr_sess_id = st.session_state.get("current_session_id")
+            if not curr_sess_id or curr_sess_id == "__new_chat__":
+                title_text = "Design Conversation"
+                for m in st.session_state["messages"]:
+                    if m["role"] == "user" and m.get("content"):
+                        raw = m["content"].replace("📎 *Attached file:*", "").replace("📎 *Uploaded file:*", "").strip()
+                        if raw:
+                            title_text = raw[:28] + ("..." if len(raw) > 28 else "")
+                            break
+                new_session = create_chat_session(user_id, proj_id, title=title_text)
+                if new_session.get("id"):
+                    curr_sess_id = new_session["id"]
+                    st.session_state["current_session_id"] = curr_sess_id
+                    st.session_state["loaded_session_id"] = curr_sess_id
+            
+            if curr_sess_id:
+                update_chat_messages(curr_sess_id, st.session_state["messages"])
+                sizing_dict = agent.last_sizing_result.to_dict() if agent.last_sizing_result else {}
+                systype = st.session_state.get("sidebar_system_type", "hybrid")
+                save_design(user_id, proj_id, curr_sess_id, systype, {}, sizing_dict, agent.last_boq_items)
+        except Exception as e:
+            print(f"DB auto-save error: {e}")
+
 # ── Sidebar Navigation (Left Panel) ──────────
 with st.sidebar:
     st.markdown("### ☀️ Solar Design\n#### Agent")
-    st.button("➕ New Project", use_container_width=True)
-    
-    st.markdown("""
-    <div class="nav-item nav-active">🏠 Dashboard</div>
-    <div class="nav-item">🔲 Solar Layouts</div>
-    <div class="nav-item">📐 Site Analysis</div>
-    <div class="nav-item">📊 Energy Yield</div>
-    <div class="nav-item">🔋 Battery Sizing</div>
-    <div class="nav-item">📄 Reports</div>
-    <div class="nav-item">⚙️ Settings</div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class="pro-card">
-        <span class="pro-label">👑 Pro Plan</span><br>
-        <span class="pro-sub">Unlimited designs<br>Renews Aug 12, 2025</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Project & System Config (Functional)
-    st.markdown("---")
-    project_options = {p["id"]: p["name"] for p in projects}
-    project_options["__new__"] = "➕ Create New Project"
-    selected_project_id = st.selectbox(
-        "Active Project",
-        options=list(project_options.keys()),
-        format_func=lambda x: project_options[x],
-        key="selected_project"
-    )
-    
-    if selected_project_id == "__new__":
-        with st.form("new_project_form"):
-            proj_name = st.text_input("Project Name", placeholder="e.g. Green Leaf Residence")
-            proj_loc  = st.text_input("Location",     placeholder="e.g. Kitengela, Kenya")
-            sys_type = st.selectbox("System Type", ["off-grid", "hybrid", "grid-tied"], index=1)
-            submitted = st.form_submit_button("Create")
-            if submitted and proj_name:
-                new_proj = create_project(user_id, proj_name, sys_type, proj_loc)
-                if new_proj.get("id"):
-                    st.session_state["current_project_id"] = new_proj["id"]
-                    st.session_state["current_session_id"] = None
-                    st.session_state["loaded_session_id"] = None
-                    st.success(f"Project '{proj_name}' created!")
-                    st.rerun()
-    else:
-        st.session_state["current_project_id"] = selected_project_id
-        
-    system_type = st.selectbox("System Type", ["off-grid", "hybrid", "grid-tied"], index=1)
+    system_type = st.selectbox("System Type", ["off-grid", "hybrid", "grid-tied"], index=1, key="sidebar_system_type")
     agent.set_system_type(system_type)
 
-    # ── Saved Chat Conversations ──────────────
-    st.markdown("---")
-    st.markdown("#### 💬 Saved Conversations")
-    
-    current_proj_id = st.session_state.get("current_project_id")
-    chat_sessions_list = get_chat_sessions(current_proj_id) if (current_proj_id and current_proj_id != "__new__") else []
-    
-    sess_opts = {"__new_chat__": "➕ New Conversation"}
-    for s in chat_sessions_list:
-        title_str = s.get("title", "Conversation")
-        date_str = str(s.get("updated_at", ""))[:10]
-        sess_opts[s["id"]] = f"💬 {title_str} ({date_str})"
-        
-    col_s1, col_s2 = st.columns([4, 1])
-    with col_s1:
-        sel_session_id = st.selectbox(
-            "Saved Chats",
-            options=list(sess_opts.keys()),
-            format_func=lambda x: sess_opts[x],
-            key="chat_session_selector",
-            label_visibility="collapsed"
-        )
-    with col_s2:
-        if st.button("➕", help="Start New Conversation", use_container_width=True):
-            st.session_state["current_session_id"] = None
-            st.session_state["loaded_session_id"] = None
-            st.session_state["messages"] = [
-                {"role": "assistant", "content": f"Hi there! 👋 What would you like to design today? I'm set to **{system_type}** mode."}
-            ]
-            st.rerun()
+    if "show_new_project_input" not in st.session_state:
+        st.session_state["show_new_project_input"] = False
 
-    # Load session when selected
-    if sel_session_id != "__new_chat__" and sel_session_id != st.session_state.get("loaded_session_id"):
-        target_s = next((s for s in chat_sessions_list if s["id"] == sel_session_id), None)
-        if target_s:
-            st.session_state["current_session_id"] = target_s["id"]
-            st.session_state["loaded_session_id"] = target_s["id"]
-            saved_messages = target_s.get("messages", [])
-            if saved_messages:
-                st.session_state["messages"] = saved_messages
-                agent.load_conversation_history(saved_messages)
+    if st.button("➕ New Project", use_container_width=True):
+        st.session_state["show_new_project_input"] = True
+        st.rerun()
+
+    if st.session_state["show_new_project_input"]:
+        with st.form("new_project_sidebar_form", clear_on_submit=True):
+            new_proj_name = st.text_input("Project Name", placeholder="e.g. Off-grid Home Design")
+            col_sb1, col_sb2 = st.columns(2)
+            with col_sb1:
+                create_clicked = st.form_submit_button("Start")
+            with col_sb2:
+                cancel_clicked = st.form_submit_button("Cancel")
             
-            # Load stored system design for this conversation to restore Live Project panel & BOQ!
-            try:
-                designs = get_designs_for_project(current_proj_id)
-                sess_design = next((d for d in designs if d.get("chat_session_id") == target_s["id"]), None) or (designs[0] if designs else None)
-                if sess_design and sess_design.get("sizing_results"):
-                    d_res = sess_design["sizing_results"]
-                    from agent.system_sizer import SizingResult
-                    agent.last_sizing_result = SizingResult(
-                        system_type=d_res.get("system_type", system_type),
-                        location=d_res.get("location", "Nairobi, Kenya"),
-                        peak_sun_hours=float(d_res.get("peak_sun_hours", 3.458)),
-                        total_peak_power_w=float(d_res.get("total_peak_power_w", 0.0)),
-                        daily_energy_wh=float(d_res.get("daily_energy_wh", 0.0)),
-                        design_energy_wh=float(d_res.get("design_energy_wh", 0.0)),
-                        panel_wp=int(d_res.get("panel_wp", 625)),
-                        panel_qty=int(d_res.get("panel_qty", 0)),
-                        total_pv_kwp=float(d_res.get("total_pv_kwp", 0.0)),
-                        inverter_kw=float(d_res.get("inverter", {}).get("kw", d_res.get("inverter_kw", 0.0))),
-                        inverter_kva=float(d_res.get("inverter", {}).get("kva", d_res.get("inverter_kva", 0.0))),
-                        inverter_qty=int(d_res.get("inverter", {}).get("qty", d_res.get("inverter_qty", 1))),
-                        battery_qty=int(d_res.get("battery", {}).get("qty", d_res.get("battery_qty", 0))),
-                        battery_module_kwh=float(d_res.get("battery", {}).get("module_kwh", 14.33)),
-                        total_storage_kwh=float(d_res.get("battery", {}).get("total_kwh", 0.0)),
-                    )
-                    if sess_design.get("boq_data"):
-                        agent.last_boq_items = sess_design["boq_data"]
-                        agent.last_boq_excel = generate_boq_excel(agent.last_boq_items)
-                        st.session_state["boq_excel"] = agent.last_boq_excel
-            except Exception:
-                pass
-            st.rerun()
+            if cancel_clicked:
+                st.session_state["show_new_project_input"] = False
+                st.rerun()
+                
+            if create_clicked and new_proj_name.strip():
+                new_proj = create_project(user_id, new_proj_name.strip(), system_type, "Nairobi, Kenya")
+                if new_proj.get("id"):
+                    proj_id = new_proj["id"]
+                    new_session = create_chat_session(user_id, proj_id, title=new_proj_name.strip())
+                    if new_session.get("id"):
+                        st.session_state["current_project_id"] = proj_id
+                        st.session_state["current_session_id"] = new_session["id"]
+                        st.session_state["loaded_session_id"] = new_session["id"]
+                        st.session_state["messages"] = [
+                            {"role": "assistant", "content": f"Hi there! 👋 Welcome to your new project **{new_proj_name.strip()}**. What would you like to design today?"}
+                        ]
+                        # Reset previous sizing state so the panel starts clean
+                        agent.last_sizing_result = None
+                        agent.last_boq_items = []
+                        agent.last_boq_excel = None
+                        st.session_state["boq_excel"] = None
+                        
+                        update_chat_messages(new_session["id"], st.session_state["messages"])
+                        st.session_state["show_new_project_input"] = False
+                        st.success(f"Project '{new_proj_name.strip()}' created!")
+                        st.rerun()
     
     st.markdown("---")
-    st.caption("📎 Upload Site Report or Load Schedule:")
-    sidebar_file = st.file_uploader("Upload PDF, CSV, Excel", type=["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg"], key="sidebar_file_uploader", label_visibility="collapsed")
-    if sidebar_file and st.session_state.get("_last_upload_sb") != sidebar_file.name:
-        st.session_state["_last_upload_sb"] = sidebar_file.name
-        if sidebar_file.name.endswith((".csv", ".xlsx", ".xls")):
-            import pandas as pd
-            from utils.file_parser import extract_loads_from_dataframe
-            try:
-                df_loads = pd.read_csv(sidebar_file) if sidebar_file.name.endswith(".csv") else pd.read_excel(sidebar_file)
-                df_loads.columns = df_loads.columns.astype(str)
-                csv_loads, _ = extract_loads_from_dataframe(df_loads)
-                if csv_loads:
-                    with st.spinner(f"⚡ Calculating system size from `{sidebar_file.name}`..."):
-                        md_res, _ = agent.run_sizing(loads=csv_loads, location=agent.project_state.location)
-                    st.session_state["messages"].append({"role": "user", "content": f"📎 *Uploaded file:* `{sidebar_file.name}`"})
-                    st.session_state["messages"].append({"role": "assistant", "content": md_res})
+    st.markdown("#### 📁 My Projects")
+    
+    if projects:
+        for p in projects:
+            proj_name = p.get("name", "Project")
+            short_name = proj_name[:16] + "..." if len(proj_name) > 16 else proj_name
+            date_str = str(p.get("created_at", ""))[:10]
+            label = f"📁 {short_name}"
+            
+            is_active = (p["id"] == st.session_state.get("current_project_id"))
+            
+            col_p1, col_p2 = st.columns([4, 1])
+            with col_p1:
+                if st.button(label, key=f"proj_btn_{p['id']}", use_container_width=True, type="primary" if is_active else "secondary", help=f"Created on {date_str}"):
+                    st.session_state["current_project_id"] = p["id"]
+                    chat_sess = get_chat_sessions(p["id"])
+                    if chat_sess:
+                        target_s = chat_sess[0]
+                        st.session_state["current_session_id"] = target_s["id"]
+                        st.session_state["loaded_session_id"] = target_s["id"]
+                        saved_messages = target_s.get("messages", [])
+                        if saved_messages:
+                            st.session_state["messages"] = saved_messages
+                            agent.load_conversation_history(saved_messages)
+                    else:
+                        st.session_state["current_session_id"] = None
+                        st.session_state["loaded_session_id"] = None
+                        st.session_state["messages"] = [
+                            {"role": "assistant", "content": "Hi there! 👋 What would you like to design today?"}
+                        ]
+                    
+                    try:
+                        designs = get_designs_for_project(p["id"])
+                        if designs:
+                            sess_design = designs[0]
+                            if sess_design.get("sizing_results"):
+                                d_res = sess_design["sizing_results"]
+                                from agent.system_sizer import SizingResult
+                                agent.last_sizing_result = SizingResult(
+                                    system_type=d_res.get("system_type", system_type),
+                                    location=d_res.get("location", "Nairobi, Kenya"),
+                                    peak_sun_hours=float(d_res.get("peak_sun_hours", 3.458)),
+                                    total_peak_power_w=float(d_res.get("total_peak_power_w", 0.0)),
+                                    daily_energy_wh=float(d_res.get("daily_energy_wh", 0.0)),
+                                    design_energy_wh=float(d_res.get("design_energy_wh", 0.0)),
+                                    panel_wp=int(d_res.get("panel_wp", 625)),
+                                    panel_qty=int(d_res.get("panel_qty", 0)),
+                                    total_pv_kwp=float(d_res.get("total_pv_kwp", 0.0)),
+                                    inverter_kw=float(d_res.get("inverter", {}).get("kw", d_res.get("inverter_kw", 0.0))),
+                                    inverter_kva=float(d_res.get("inverter", {}).get("kva", d_res.get("inverter_kva", 0.0))),
+                                    inverter_qty=int(d_res.get("inverter", {}).get("qty", d_res.get("inverter_qty", 1))),
+                                    battery_qty=int(d_res.get("battery", {}).get("qty", d_res.get("battery_qty", 0))),
+                                    battery_module_kwh=float(d_res.get("battery", {}).get("module_kwh", 14.33)),
+                                    total_storage_kwh=float(d_res.get("battery", {}).get("total_kwh", 0.0)),
+                                )
+                                if sess_design.get("boq_data"):
+                                    agent.last_boq_items = sess_design["boq_data"]
+                                    agent.last_boq_excel = generate_boq_excel(agent.last_boq_items)
+                                    st.session_state["boq_excel"] = agent.last_boq_excel
+                    except Exception:
+                        pass
                     st.rerun()
-            except Exception as e:
-                st.error(f"Error parsing `{sidebar_file.name}`: {e}")
-        else:
-            with st.spinner(f"📄 Analyzing `{sidebar_file.name}`..."):
-                resp = agent.process_uploaded_file(sidebar_file.read(), sidebar_file.name, get_mime_type(sidebar_file.name))
-            st.session_state["messages"].append({"role": "user", "content": f"📎 *Uploaded file:* `{sidebar_file.name}`"})
-            st.session_state["messages"].append({"role": "assistant", "content": resp})
-            st.rerun()
+            with col_p2:
+                if st.button("🗑️", key=f"del_proj_{p['id']}", use_container_width=True, help="Delete Project"):
+                    delete_project(p["id"])
+                    if st.session_state.get("current_project_id") == p["id"]:
+                        st.session_state["current_project_id"] = None
+                        st.session_state["current_session_id"] = None
+                        st.session_state["loaded_session_id"] = None
+                        st.session_state["messages"] = [
+                            {"role": "assistant", "content": "Hi there! 👋 What would you like to design today?"}
+                        ]
+                    st.rerun()
+    else:
+        st.info("No projects yet. Start a chat to save a project!")
+    
 
-    st.markdown("---")
+
     render_sidebar_user()
 
 # ── Main Layout: Center Chat & Right Panel ───
@@ -458,25 +497,7 @@ with col_center:
     </div>
     """, unsafe_allow_html=True)
     
-    # Quick Actions
-    st.caption("Try asking me to...")
-    qa1, qa2, qa3, qa4 = st.columns(4)
-    with qa1:
-        if st.button("🏠 Design a 10kW residential system", use_container_width=True):
-            st.session_state["messages"].append({"role": "user", "content": "Design a 10kW residential system"})
-            st.rerun()
-    with qa2:
-        if st.button("🔋 Optimize battery capacity", use_container_width=True):
-            st.session_state["messages"].append({"role": "user", "content": "Optimize battery capacity"})
-            st.rerun()
-    with qa3:
-        if st.button("🛰️ Analyze shading from satellite", use_container_width=True):
-            st.session_state["messages"].append({"role": "user", "content": "Analyze shading from satellite image"})
-            st.rerun()
-    with qa4:
-        if st.button("📈 Estimate annual energy", use_container_width=True):
-            st.session_state["messages"].append({"role": "user", "content": "Estimate annual energy production"})
-            st.rerun()
+
 
     st.markdown("---")
     
@@ -494,30 +515,7 @@ with col_center:
             with st.chat_message("assistant", avatar="☀️"):
                 st.markdown(msg["content"])
 
-    # Bottom floating action buttons
-    b1, b2, b3, b4, _ = st.columns([1, 1, 1, 1, 3])
-    with b1:
-        st.markdown('<div class="action-pill">', unsafe_allow_html=True)
-        if st.button("🛰️ Satellite View", use_container_width=True):
-            st.session_state["messages"].append({"role": "user", "content": "Show Satellite View"})
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with b2:
-        st.markdown('<div class="action-pill">', unsafe_allow_html=True)
-        if st.button("🔲 PV Layout", use_container_width=True):
-            st.session_state["messages"].append({"role": "user", "content": "Generate PV Layout"})
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with b3:
-        st.markdown('<div class="action-pill">', unsafe_allow_html=True)
-        if st.button("📋 BOM", use_container_width=True):
-            st.session_state["messages"].append({"role": "user", "content": "Generate BOQ"})
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with b4:
-        if st.button("📊 Simulation", use_container_width=True):
-            st.session_state["messages"].append({"role": "user", "content": "Run Simulation"})
-            st.rerun()
+
 
     # Chat Input with Automatic File Processing
     user_submission = st.chat_input("Ask anything about your solar design or attach loads...", accept_file="multiple")
@@ -575,134 +573,209 @@ with col_center:
                     st.session_state["boq_excel"] = boq_excel
             st.session_state["messages"].append({"role": "assistant", "content": response_text})
         
-        # Auto-save chat messages & sizing design to Supabase DB
-        proj_id = st.session_state.get("current_project_id")
-        if proj_id and proj_id != "__new__":
-            try:
-                curr_sess_id = st.session_state.get("current_session_id")
-                if not curr_sess_id or curr_sess_id == "__new_chat__":
-                    title_text = "Design Conversation"
-                    for m in st.session_state["messages"]:
-                        if m["role"] == "user" and m.get("content"):
-                            raw = m["content"].replace("📎 *Attached file:*", "").replace("📎 *Uploaded file:*", "").strip()
-                            if raw:
-                                title_text = raw[:28] + ("..." if len(raw) > 28 else "")
-                                break
-                    new_session = create_chat_session(user_id, proj_id, title=title_text)
-                    if new_session.get("id"):
-                        curr_sess_id = new_session["id"]
-                        st.session_state["current_session_id"] = curr_sess_id
-                        st.session_state["loaded_session_id"] = curr_sess_id
-                
-                if curr_sess_id:
-                    update_chat_messages(curr_sess_id, st.session_state["messages"])
-                    if agent.last_sizing_result:
-                        save_design(user_id, proj_id, curr_sess_id, system_type, {}, agent.last_sizing_result.to_dict(), agent.last_boq_items)
-            except Exception as e:
-                print(f"DB auto-save error: {e}")
+        save_current_project_state()
         st.rerun()
 
     # ── Interactive Quick Sizing & Manual Load Entry Form ──
     st.markdown("---")
-    with st.expander("⚙️ Quick Sizing Form — Upload Spreadsheet or Enter Loads Manually", expanded=False):
-        tab_csv, tab_manual = st.tabs(["📂 Upload Loads CSV / Excel", "✍️ Enter Loads Manually"])
+    with st.expander("⚙️ Quick Sizing Form — Select Sizing Input Source", expanded=True):
+        # Default initialization
+        if "active_sizing_mode" not in st.session_state:
+            st.session_state["active_sizing_mode"] = "logged_data"
+            
+        active_mode = st.session_state["active_sizing_mode"]
+        
+        st.markdown("##### 🔍 Sizing Method Selection:")
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
+        with col_btn1:
+            if st.button("📂 Logged Data Sizing", key="btn_logged_data", use_container_width=True, type="primary" if active_mode == "logged_data" else "secondary"):
+                st.session_state["active_sizing_mode"] = "logged_data"
+                st.rerun()
+        with col_btn2:
+            if st.button("✍️ Load Profile Sizing", key="btn_load_profile", use_container_width=True, type="primary" if active_mode == "load_profile" else "secondary"):
+                st.session_state["active_sizing_mode"] = "load_profile"
+                st.rerun()
+        with col_btn3:
+            if st.button("📄 Bill Analysis Sizing", key="btn_bill_analysis", use_container_width=True, type="primary" if active_mode == "bill_analysis" else "secondary"):
+                st.session_state["active_sizing_mode"] = "bill_analysis"
+                st.rerun()
+                
+        st.markdown("---")
 
-        with tab_csv:
-            st.markdown("Upload a `.csv` or `.xlsx` spreadsheet of your load schedule or interval logger data!")
-            sample_csv = "name,wattage,quantity,hours_per_day\nLED Lighting & Office,15,20,10.0\nDesktop Computers,150,10,8.0\nAir Conditioning HVAC,2500,2,8.0\nCommercial Refrigerator,350,1,24.0\nWater Pumping Motor,1200,1,2.0\n"
-            st.download_button("📥 Download Sample Loads CSV Template", data=sample_csv, file_name="sample_load_schedule.csv", mime="text/csv")
+        # Sizing common settings helper
+        def render_sizing_settings(prefix: str):
+            col_s1, col_s2, col_s3 = st.columns(3)
+            with col_s1:
+                loc = st.text_input("Location", value=agent.project_state.location or "Nairobi, Kenya", key=f"{prefix}_loc")
+                p_wp = st.number_input("Panel Watt-peak (Wp)", value=625, step=25, key=f"{prefix}_p_wp")
+            with col_s2:
+                days = st.number_input("Days of Autonomy", value=2.0, min_value=0.5, max_value=7.0, step=0.5, key=f"{prefix}_days")
+                volt = st.selectbox("System Voltage (DC)", [12, 24, 48], index=2, key=f"{prefix}_volt")
+            with col_s3:
+                dod_val = st.slider("Battery DoD (%)", 50, 90, 80, key=f"{prefix}_dod") / 100
+                ah_val = st.number_input("Battery Ah Rating", value=280, step=20, key=f"{prefix}_ah")
+            return loc, p_wp, days, volt, dod_val, ah_val
 
-            load_file = st.file_uploader("Choose Load Schedule / Logger File (.csv or .xlsx)", type=["csv", "xlsx"], key="load_csv_uploader")
-            if load_file:
+        if active_mode == "logged_data":
+            st.markdown("##### 📂 Sizing based on time-series interval logger data (SCADA/Fluke/Meter logs)")
+            logged_file = st.file_uploader("Upload Logger Spreadsheet (.csv or .xlsx)", type=["csv", "xlsx"], key="logged_csv_uploader")
+            if logged_file:
                 import pandas as pd
                 try:
-                    df_loads = pd.read_csv(load_file) if load_file.name.endswith(".csv") else pd.read_excel(load_file)
-                    df_loads.columns = df_loads.columns.astype(str)
-                    st.dataframe(make_arrow_compatible(df_loads))
-
-                    col_u1, col_u2, col_u3 = st.columns(3)
-                    with col_u1:
-                        u_loc = st.text_input("Location", value=agent.project_state.location or "Nairobi, Kenya", key="u_loc")
-                        u_wp = st.number_input("Panel Watt-peak (Wp)", value=625, step=25, key="u_wp")
-                    with col_u2:
-                        u_days = st.number_input("Days of Autonomy", value=2.0, min_value=0.5, max_value=7.0, step=0.5, key="u_days")
-                        u_volt = st.selectbox("System Voltage (DC)", [12, 24, 48], index=2, key="u_volt")
-                    with col_u3:
-                        u_dod = st.slider("Battery DoD (%)", 50, 90, 80, key="u_dod") / 100
-                        u_ah  = st.number_input("Battery Ah Rating", value=280, step=20, key="u_ah")
-
-                    if st.button("⚡ Run Sizing from Uploaded File", key="run_csv_sizing", use_container_width=True):
+                    df_logged = pd.read_csv(logged_file) if logged_file.name.endswith(".csv") else pd.read_excel(logged_file)
+                    df_logged.columns = df_logged.columns.astype(str)
+                    st.dataframe(make_arrow_compatible(df_logged))
+                    
+                    st.markdown("---")
+                    st.markdown("##### Sizing Parameters")
+                    l_loc, l_wp, l_days, l_volt, l_dod, l_ah = render_sizing_settings("logged")
+                    
+                    if st.button("⚡ Run Sizing (Logged Data)", key="run_logged_sizing", use_container_width=True):
                         from utils.file_parser import extract_loads_from_dataframe
-                        csv_loads, _ = extract_loads_from_dataframe(df_loads)
+                        csv_loads, _ = extract_loads_from_dataframe(df_logged)
                         if not csv_loads:
-                            st.warning("No valid loads found in CSV/Excel. Ensure columns contain wattage or power values.")
+                            st.warning("No valid data found in logger file. Ensure columns contain power values.")
                         else:
-                            with st.spinner("Calculating system size..."):
-                                md_result, _ = agent.run_sizing(
+                            with st.spinner("Logged Data Agent is sizing system..."):
+                                md_result, _ = agent.run_sizing_by_logged_data(
                                     loads=csv_loads,
-                                    location=u_loc,
-                                    days_of_autonomy=u_days,
-                                    dod=u_dod,
-                                    system_voltage_dc=int(u_volt),
-                                    battery_ah_rating=int(u_ah),
-                                    panel_wp=int(u_wp),
+                                    location=l_loc,
+                                    days_of_autonomy=l_days,
+                                    dod=l_dod,
+                                    system_voltage_dc=int(l_volt),
+                                    battery_ah_rating=int(l_ah),
+                                    panel_wp=int(l_wp),
                                 )
-                            st.session_state["messages"].append({"role": "user", "content": f"📎 *Ran sizing from CSV:* `{load_file.name}`"})
+                            st.session_state["messages"].append({"role": "user", "content": f"📎 *Ran Logged Data Sizing from:* `{logged_file.name}`"})
                             st.session_state["messages"].append({"role": "assistant", "content": md_result})
                             st.success("✅ Sizing complete! Check the chat above.")
+                            save_current_project_state()
                             st.rerun()
                 except Exception as e:
-                    st.error(f"Error parsing spreadsheet: {e}")
+                    st.error(f"Error parsing logger spreadsheet: {e}")
 
-        with tab_manual:
-            st.markdown("Fill in your load schedule manually and click **Run Sizing**.")
+        elif active_mode == "load_profile":
+            st.markdown("##### ✍️ Sizing based on load schedule/appliance list")
+            st.markdown("You can upload a `.csv` / `.xlsx` template or enter appliance details manually.")
+            
+            p_tab_csv, p_tab_manual = st.tabs(["📂 Upload Appliance Spreadsheet", "✍️ Enter Appliances Manually"])
+            
+            with p_tab_csv:
+                sample_csv = "name,wattage,quantity,hours_per_day\nLED Lighting & Office,15,20,10.0\nDesktop Computers,150,10,8.0\nAir Conditioning HVAC,2500,2,8.0\nCommercial Refrigerator,350,1,24.0\nWater Pumping Motor,1200,1,2.0\n"
+                st.download_button("📥 Download Appliance List CSV Template", data=sample_csv, file_name="sample_load_schedule.csv", mime="text/csv")
+                
+                profile_file = st.file_uploader("Upload Appliance Spreadsheet (.csv or .xlsx)", type=["csv", "xlsx"], key="profile_csv_uploader")
+                if profile_file:
+                    import pandas as pd
+                    try:
+                        df_prof = pd.read_csv(profile_file) if profile_file.name.endswith(".csv") else pd.read_excel(profile_file)
+                        df_prof.columns = df_prof.columns.astype(str)
+                        st.dataframe(make_arrow_compatible(df_prof))
+                        
+                        st.markdown("---")
+                        st.markdown("##### Sizing Parameters")
+                        p_loc, p_wp, p_days, p_volt, p_dod, p_ah = render_sizing_settings("profile_csv")
+                        
+                        if st.button("🔆 Run Sizing (Load Profile from Spreadsheet)", key="run_profile_csv_sizing", use_container_width=True):
+                            from utils.file_parser import extract_loads_from_dataframe
+                            csv_loads, _ = extract_loads_from_dataframe(df_prof)
+                            if not csv_loads:
+                                st.warning("No valid appliances found. Ensure columns contain wattage or power values.")
+                            else:
+                                with st.spinner("Load Profile Agent is sizing system..."):
+                                    md_result, _ = agent.run_sizing_by_load_profile(
+                                        loads=csv_loads,
+                                        location=p_loc,
+                                        days_of_autonomy=p_days,
+                                        dod=p_dod,
+                                        system_voltage_dc=int(p_volt),
+                                        battery_ah_rating=int(p_ah),
+                                        panel_wp=int(p_wp),
+                                    )
+                                st.session_state["messages"].append({"role": "user", "content": f"📎 *Ran Load Profile Sizing from:* `{profile_file.name}`"})
+                                st.session_state["messages"].append({"role": "assistant", "content": md_result})
+                                st.success("✅ Sizing complete! Check the chat above.")
+                                save_current_project_state()
+                                st.rerun()
+                    except Exception as e:
+                        st.error(f"Error parsing appliance spreadsheet: {e}")
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                location = st.text_input("Location", value=agent.project_state.location or "Nairobi, Kenya", key="loc_input")
-                panel_wp = st.number_input("Panel Watt-peak (Wp)", value=625, step=25, key="panel_wp")
-            with col2:
-                days_autonomy = st.number_input("Days of Autonomy", value=2.0, min_value=0.5, max_value=7.0, step=0.5, key="days_auto")
-                sys_voltage   = st.selectbox("System Voltage (DC)", [12, 24, 48], index=2, key="sys_volt")
-            with col3:
-                dod         = st.slider("Battery DoD (%)", 50, 90, 80, key="dod_slider") / 100
-                batt_ah     = st.number_input("Battery Ah Rating", value=280, step=20, key="batt_ah")
+            with p_tab_manual:
+                st.markdown("Fill in appliance load schedule manually below:")
+                pm_loc, pm_wp, pm_days, pm_volt, pm_dod, pm_ah = render_sizing_settings("profile_manual")
+                
+                st.markdown("---")
+                st.markdown("##### ⚡ Load Schedule")
+                load_count = st.number_input("Number of loads", min_value=1, max_value=20, value=3, key="profile_manual_count")
+                
+                loads = []
+                for i in range(int(load_count)):
+                    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                    with c1:
+                        lname = st.text_input(f"Load {i+1} Name", key=f"p_lname_{i}", placeholder="e.g. LED Light")
+                    with c2:
+                        lwatt = st.number_input("Watts", key=f"p_lwatt_{i}", min_value=0, value=10)
+                    with c3:
+                        lqty  = st.number_input("Qty",   key=f"p_lqty_{i}",  min_value=1, value=1)
+                    with c4:
+                        lhrs  = st.number_input("Hrs/day", key=f"p_lhrs_{i}", min_value=0.0, value=8.0, step=0.5)
+                    if lname and lwatt > 0:
+                        loads.append({"name": lname, "wattage": lwatt, "quantity": lqty, "hours_per_day": lhrs})
+                        
+                if st.button("🔆 Run Sizing (Load Profile Manual)", key="run_profile_manual_sizing", use_container_width=True):
+                    if not loads:
+                        st.warning("Please add at least one load.")
+                    else:
+                        with st.spinner("Load Profile Agent is sizing system..."):
+                            md_result, _ = agent.run_sizing_by_load_profile(
+                                loads=loads,
+                                location=pm_loc,
+                                days_of_autonomy=pm_days,
+                                dod=pm_dod,
+                                system_voltage_dc=int(pm_volt),
+                                battery_ah_rating=int(pm_ah),
+                                panel_wp=int(pm_wp),
+                            )
+                        st.session_state["messages"].append({"role": "user", "content": "⚡ *Submitted manual load schedule*" })
+                        st.session_state["messages"].append({"role": "assistant", "content": md_result})
+                        st.success("✅ Sizing complete! Check the chat above.")
+                        save_current_project_state()
+                        st.rerun()
 
-            st.markdown("#### ⚡ Load Schedule")
-            load_count = st.number_input("Number of loads", min_value=1, max_value=20, value=3, key="load_count")
-
-            loads = []
-            for i in range(int(load_count)):
-                c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
-                with c1:
-                    lname = st.text_input(f"Load {i+1} Name", key=f"lname_{i}", placeholder="e.g. LED Light")
-                with c2:
-                    lwatt = st.number_input("Watts", key=f"lwatt_{i}", min_value=0, value=10)
-                with c3:
-                    lqty  = st.number_input("Qty",   key=f"lqty_{i}",  min_value=1, value=1)
-                with c4:
-                    lhrs  = st.number_input("Hrs/day", key=f"lhrs_{i}", min_value=0.0, value=8.0, step=0.5)
-                if lname and lwatt > 0:
-                    loads.append({"name": lname, "wattage": lwatt, "quantity": lqty, "hours_per_day": lhrs})
-
-            if st.button("🔆 Run Sizing (Manual)", key="run_sizing", use_container_width=True):
-                if not loads:
-                    st.warning("Please add at least one load.")
-                else:
-                    with st.spinner("Calculating system size..."):
-                        md_result, _ = agent.run_sizing(
-                            loads=loads,
-                            location=location,
-                            days_of_autonomy=float(days_autonomy),
-                            dod=dod,
-                            system_voltage_dc=int(sys_voltage),
-                            battery_ah_rating=int(batt_ah),
-                            panel_wp=int(panel_wp),
-                        )
-                    st.session_state["messages"].append({"role": "user", "content": "⚡ *Submitted manual load schedule*" })
-                    st.session_state["messages"].append({"role": "assistant", "content": md_result})
-                    st.success("✅ Sizing complete! Check the chat above.")
-                    st.rerun()
+        elif active_mode == "bill_analysis":
+            st.markdown("##### 📄 Sizing based on monthly utility bill analysis")
+            
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                monthly_kwh = st.number_input("Monthly Energy Consumption (kWh)", min_value=1.0, value=1200.0, step=100.0, key="bill_monthly_kwh")
+                billing_days = st.number_input("Billing Period Days", min_value=1, value=30, key="bill_days")
+            with col_b2:
+                customer_type = st.selectbox("Customer / Tariff Type", ["Residential", "Commercial", "Industrial"], key="bill_cust_type")
+                max_demand_kw = st.number_input("Measured Peak Demand (kW) — Optional", min_value=0.0, value=0.0, step=1.0, key="bill_max_demand")
+            
+            st.markdown("---")
+            st.markdown("##### Sizing Parameters")
+            b_loc, b_wp, b_days, b_volt, b_dod, b_ah = render_sizing_settings("bill")
+            
+            if st.button("📊 Run Sizing (Bill Analysis)", key="run_bill_sizing", use_container_width=True):
+                with st.spinner("Bill Analysis Agent is sizing system..."):
+                    md_result, _ = agent.run_sizing_by_bill_analysis(
+                        monthly_energy_kwh=monthly_kwh,
+                        billing_days=int(billing_days),
+                        customer_type=customer_type,
+                        max_demand_kw=max_demand_kw,
+                        location=b_loc,
+                        days_of_autonomy=b_days,
+                        dod=b_dod,
+                        system_voltage_dc=int(b_volt),
+                        battery_voltage=51.2, # default
+                        panel_wp=int(b_wp),
+                    )
+                st.session_state["messages"].append({"role": "user", "content": f"📄 *Submitted utility bill info ({monthly_kwh} kWh, {billing_days} days)*"})
+                st.session_state["messages"].append({"role": "assistant", "content": md_result})
+                st.success("✅ Sizing complete! Check the chat above.")
+                save_current_project_state()
+                st.rerun()
 
     # ── Equipment Datasheets & Component Reference Library ──
     with st.expander("📚 Equipment Datasheets & Component Reference Library", expanded=False):
@@ -783,31 +856,7 @@ with col_right:
     <div class="live-metric-row"><span class="live-metric-label" style="color:#10B981;">💲 Estimated Savings</span><span class="live-metric-val" style="color:#10B981;">{savings}</span></div>
     """, unsafe_allow_html=True)
     
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Summary Card
-    sys_size = f"{res.total_pv_kwp:.2f} kW" if res else "0.00 kW"
-    prod = f"{((res.daily_energy_wh/1000) * 365):,.0f} kWh" if res else "0 kWh"
-    
-    st.markdown(f"""
-    <div class="dashboard-card" style="border-color:#3B82F6; background: linear-gradient(180deg, #111827 0%, #1E3A8A20 100%);">
-        <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
-            <div style="text-align:center;">
-                <span style="font-size:0.8rem;">System Size</span><br>
-                <strong style="font-size:1.4rem; color:#F8FAFC;">{sys_size}</strong><br>
-                <span style="font-size:0.8rem;">DC</span>
-            </div>
-            <div style="text-align:center;">
-                <span style="font-size:0.8rem;">Annual Production</span><br>
-                <strong style="font-size:1.4rem; color:#F8FAFC;">{prod}</strong><br>
-                <span style="font-size:0.8rem;">Est.</span>
-            </div>
-        </div>
-        <button style="width:100%; padding:10px; background:#1E293B; border:1px solid #334155; border-radius:6px; color:#94A3B8; cursor:pointer;">
-            📄 View Detailed Report
-        </button>
-    </div>
-    """, unsafe_allow_html=True)
+
     
     # File Uploader in right panel
     st.markdown("---")
@@ -827,6 +876,7 @@ with col_right:
                         md, _ = agent.run_sizing(loads=csv_loads, location=loc, system_type=system_type)
                     st.session_state["messages"].append({"role": "user", "content": f"📎 *Uploaded {uploaded_file.name}*"})
                     st.session_state["messages"].append({"role": "assistant", "content": md})
+                    save_current_project_state()
                     st.rerun()
             except Exception as e:
                 st.error(f"Error parsing file: {e}")
@@ -835,4 +885,18 @@ with col_right:
                 resp = agent.process_uploaded_file(uploaded_file.read(), uploaded_file.name, get_mime_type(uploaded_file.name))
                 st.session_state["messages"].append({"role": "user", "content": f"📎 *Uploaded {uploaded_file.name}*"})
                 st.session_state["messages"].append({"role": "assistant", "content": resp})
+                save_current_project_state()
                 st.rerun()
+
+# ── Global Screen-Bottom Windows Taskbar ──────────
+st.markdown("""
+<div class="windows-taskbar">
+    <span class="taskbar-icon-item taskbar-icon-active" title="Dashboard"><i class="fa-solid fa-house"></i></span>
+    <span class="taskbar-icon-item" title="Solar Layouts"><i class="fa-solid fa-solar-panel"></i></span>
+    <span class="taskbar-icon-item" title="Site Analysis"><i class="fa-solid fa-ruler-combined"></i></span>
+    <span class="taskbar-icon-item" title="Energy Yield"><i class="fa-solid fa-chart-column"></i></span>
+    <span class="taskbar-icon-item" title="Battery Sizing"><i class="fa-solid fa-battery-three-quarters"></i></span>
+    <span class="taskbar-icon-item" title="Reports"><i class="fa-solid fa-file-lines"></i></span>
+    <span class="taskbar-icon-item" title="Settings"><i class="fa-solid fa-gear"></i></span>
+</div>
+""", unsafe_allow_html=True)
