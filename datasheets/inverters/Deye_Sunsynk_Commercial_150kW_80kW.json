@@ -1,0 +1,22 @@
+{
+  "manufacturer": "Deye / Sunsynk",
+  "type": "Commercial High Voltage Hybrid & Grid-Tied Inverter",
+  "technical_specifications": {
+    "standard_commercial_sizes_kw": [80, 100, 150],
+    "max_dc_input_voltage_vin_max_v": 1000,
+    "mppt_operating_voltage_range_v": "200 V - 850 V",
+    "mppt_operating_voltage_min_v": 200,
+    "mppt_operating_voltage_max_v": 850,
+    "full_load_mppt_range_v": "500 V - 850 V",
+    "full_load_mppt_min_v": 500,
+    "full_load_mppt_max_v": 850,
+    "number_of_mppt_inputs": "6 to 12 MPPTs",
+    "max_short_circuit_current_per_mppt_a": 40,
+    "nominal_ac_output_voltage": "400V 3-Phase + N (50/60 Hz)",
+    "inverter_efficiency_peak": "98.6%",
+    "safety_and_standards": [
+      "IEC 62109-1/2",
+      "EN 50549"
+    ]
+  }
+}

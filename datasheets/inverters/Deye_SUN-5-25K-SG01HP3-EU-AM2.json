@@ -1,0 +1,59 @@
+{
+  "manufacturer": "Deye",
+  "series": "SUN-SG01HP3-EU-AM2",
+  "type": "3-Phase High Voltage (HV) Hybrid Inverter",
+  "models": [
+    "SUN-5K-SG01HP3-EU-AM2",
+    "SUN-6K-SG01HP3-EU-AM2",
+    "SUN-8K-SG01HP3-EU-AM2",
+    "SUN-10K-SG01HP3-EU-AM2",
+    "SUN-12K-SG01HP3-EU-AM2",
+    "SUN-15K-SG01HP3-EU-AM2",
+    "SUN-20K-SG01HP3-EU-AM2",
+    "SUN-25K-SG01HP3-EU-AM2"
+  ],
+  "technical_specifications": {
+    "rated_power_kw_range": [
+      5,
+      6,
+      8,
+      10,
+      12,
+      15,
+      20,
+      25
+    ],
+    "peak_power_factor": "1.5x rated power for 10s",
+    "dc_input": {
+      "max_dc_input_voltage_v": 1000,
+      "mppt_voltage_range_v": "200 V – 800 V",
+      "mppt_voltage_min_v": 200,
+      "mppt_voltage_max_v": 800,
+      "number_of_mppt": 4,
+      "max_short_circuit_current_per_mppt_a": 30
+    },
+    "ac_output": {
+      "nominal_voltage_v": "230 / 400 V 3-Phase + N",
+      "frequency_hz": "50 / 60",
+      "phases": 3,
+      "power_factor": "> 0.99",
+      "thd": "< 3%"
+    },
+    "battery_interface": {
+      "battery_voltage_range_v": "180 V – 800 V",
+      "battery_type": "High Voltage (HV) Lithium Stack",
+      "bms_communication": "CAN / RS485"
+    },
+    "efficiency": {
+      "max_efficiency_pct": 97.8
+    },
+    "protection": {
+      "ingress_protection": "IP65",
+      "operating_temperature_c": "-25 to +60"
+    },
+    "safety_and_standards": [
+      "IEC 62109-1/2",
+      "EN 50549"
+    ]
+  }
+}

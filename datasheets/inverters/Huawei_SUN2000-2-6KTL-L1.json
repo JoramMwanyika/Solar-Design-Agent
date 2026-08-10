@@ -1,0 +1,62 @@
+{
+  "manufacturer": "Huawei",
+  "series": "SUN2000-KTL-L1",
+  "type": "Single-Phase Grid-Tied Solar Inverter (Residential)",
+  "models": [
+    "SUN2000-2KTL-L1",
+    "SUN2000-3KTL-L1",
+    "SUN2000-3.68KTL-L1",
+    "SUN2000-4KTL-L1",
+    "SUN2000-4.6KTL-L1",
+    "SUN2000-5KTL-L1",
+    "SUN2000-6KTL-L1"
+  ],
+  "technical_specifications": {
+    "rated_power_kw_range": [
+      2,
+      3,
+      3.68,
+      4,
+      4.6,
+      5,
+      6
+    ],
+    "dc_input": {
+      "max_dc_input_voltage_v": 600,
+      "mppt_voltage_range_v": "80 V – 560 V",
+      "mppt_voltage_min_v": 80,
+      "mppt_voltage_max_v": 560,
+      "number_of_mppt": 2,
+      "max_pv_input_current_per_mppt_a": 11
+    },
+    "ac_output": {
+      "nominal_voltage_v": "220 / 230 / 240 V Single-Phase",
+      "rated_output_power_w_range": [
+        2000,
+        3000,
+        3680,
+        4000,
+        4600,
+        5000,
+        6000
+      ],
+      "frequency_hz": "50 / 60",
+      "phases": 1,
+      "power_factor": "> 0.99",
+      "thd": "< 3%"
+    },
+    "efficiency": {
+      "max_efficiency_pct": 98.6,
+      "euro_efficiency_pct": 98.0
+    },
+    "protection": {
+      "ingress_protection": "IP65",
+      "operating_temperature_c": "-25 to +60"
+    },
+    "safety_and_standards": [
+      "IEC 62109-1/2",
+      "IEC 61727",
+      "AS/NZS 4777.2"
+    ]
+  }
+}

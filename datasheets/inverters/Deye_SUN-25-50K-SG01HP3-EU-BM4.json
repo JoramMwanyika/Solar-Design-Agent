@@ -1,0 +1,53 @@
+{
+  "manufacturer": "Deye",
+  "series": "SUN-SG01HP3-EU-BM4",
+  "type": "3-Phase High Voltage (HV) Hybrid Inverter (Commercial)",
+  "models": [
+    "SUN-25K-SG01HP3-EU-BM4",
+    "SUN-30K-SG01HP3-EU-BM4",
+    "SUN-40K-SG01HP3-EU-BM4",
+    "SUN-50K-SG01HP3-EU-BM4"
+  ],
+  "technical_specifications": {
+    "rated_power_kw_range": [
+      25,
+      30,
+      40,
+      50
+    ],
+    "peak_power_factor": "1.5x rated power for 10s",
+    "dc_input": {
+      "max_dc_input_voltage_v": 1000,
+      "mppt_voltage_range_v": "200 V – 850 V",
+      "mppt_voltage_min_v": 200,
+      "mppt_voltage_max_v": 850,
+      "number_of_mppt": 6,
+      "max_short_circuit_current_per_mppt_a": 40
+    },
+    "ac_output": {
+      "nominal_voltage_v": "230 / 400 V 3-Phase + N",
+      "max_apparent_output_power_kva": 55,
+      "frequency_hz": "50 / 60",
+      "phases": 3,
+      "power_factor": "> 0.99",
+      "thd": "< 3%"
+    },
+    "battery_interface": {
+      "battery_voltage_range_v": "180 V – 800 V",
+      "battery_type": "High Voltage (HV) Lithium Stack",
+      "bms_communication": "CAN / RS485"
+    },
+    "efficiency": {
+      "max_efficiency_pct": 98.3
+    },
+    "protection": {
+      "ingress_protection": "IP66",
+      "operating_temperature_c": "-25 to +60"
+    },
+    "safety_and_standards": [
+      "IEC 62109-1/2",
+      "IEC 62116",
+      "EN 50549"
+    ]
+  }
+}

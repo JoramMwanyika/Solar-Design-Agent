@@ -1,0 +1,51 @@
+{
+  "manufacturer": "Huawei",
+  "series": "SUN2000-KTL-M3",
+  "type": "3-Phase Grid-Tied Solar Inverter (Commercial)",
+  "models": [
+    "SUN2000-30KTL-M3",
+    "SUN2000-36KTL-M3",
+    "SUN2000-40KTL-M3"
+  ],
+  "technical_specifications": {
+    "rated_power_kw_range": [
+      30,
+      36,
+      40
+    ],
+    "dc_input": {
+      "max_dc_input_voltage_v": 1100,
+      "mppt_voltage_range_v": "200 V – 1000 V",
+      "mppt_voltage_min_v": 200,
+      "mppt_voltage_max_v": 1000,
+      "number_of_mppt": 4,
+      "max_short_circuit_current_per_mppt_a": 30
+    },
+    "ac_output": {
+      "nominal_voltage_v": "400 V 3-Phase + N",
+      "frequency_hz": "50",
+      "phases": 3,
+      "power_factor": "> 0.99",
+      "thd": "< 3%"
+    },
+    "efficiency": {
+      "max_efficiency_pct": 98.7,
+      "euro_efficiency_pct": 98.3
+    },
+    "features": [
+      "PID Recovery",
+      "Smart I-V Curve Diagnosis",
+      "DC Arc Fault Circuit Interrupter"
+    ],
+    "protection": {
+      "ingress_protection": "IP65",
+      "operating_temperature_c": "-25 to +60"
+    },
+    "safety_and_standards": [
+      "IEC 62109-1/2",
+      "IEC 61727",
+      "IEC 62116",
+      "EN 50549"
+    ]
+  }
+}

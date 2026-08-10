@@ -26,7 +26,7 @@ from auth.login import require_login, render_sidebar_user
 from agent.orchestrator import SolarAgent
 from utils.file_parser import get_mime_type
 from db.queries import (
-    create_project, get_user_projects, create_chat_session,
+    create_project, delete_project, get_user_projects, create_chat_session,
     get_chat_sessions, update_chat_messages, save_design,
     get_designs_for_project, delete_chat_session
 )
@@ -444,6 +444,8 @@ with st.sidebar:
                                     inverter_kw=float(d_res.get("inverter", {}).get("kw", d_res.get("inverter_kw", 0.0))),
                                     inverter_kva=float(d_res.get("inverter", {}).get("kva", d_res.get("inverter_kva", 0.0))),
                                     inverter_qty=int(d_res.get("inverter", {}).get("qty", d_res.get("inverter_qty", 1))),
+                                    inverter_brand=d_res.get("inverter", {}).get("brand", d_res.get("inverter_brand", "Huawei SUN2000 Series")),
+                                    voltage_architecture=d_res.get("inverter", {}).get("voltage_architecture", d_res.get("voltage_architecture", "High Voltage (HV: 1000V DC)")),
                                     battery_qty=int(d_res.get("battery", {}).get("qty", d_res.get("battery_qty", 0))),
                                     battery_module_kwh=float(d_res.get("battery", {}).get("module_kwh", 14.33)),
                                     total_storage_kwh=float(d_res.get("battery", {}).get("total_kwh", 0.0)),
@@ -781,7 +783,7 @@ with col_center:
     with st.expander("📚 Equipment Datasheets & Component Reference Library", expanded=False):
         st.markdown("Upload equipment datasheets (**PV Modules, Inverters, Battery Energy Storage Systems, Protection Switchgear**) in PDF, Word, Excel, CSV, or Image format. SolarBot will index the technical specifications and use them for stringing, voltage limits, and component selection!")
         
-        ds_file = st.file_uploader("Upload Equipment Datasheet / Spec Sheet (.pdf, .docx, .png, .jpg, .xlsx, .csv)", type=["pdf", "docx", "png", "jpg", "xlsx", "csv"], key="datasheet_library_uploader")
+        ds_file = st.file_uploader("Upload Equipment Datasheet / Spec Sheet (.pdf, .docx, .png, .jpg, .xlsx, .csv, .json)", type=["pdf", "docx", "png", "jpg", "xlsx", "csv", "json"], key="datasheet_library_uploader")
         if ds_file and st.session_state.get("_last_ds_file") != ds_file.name:
             st.session_state["_last_ds_file"] = ds_file.name
             with st.spinner(f"🔍 Analyzing datasheet `{ds_file.name}`..."):
@@ -839,7 +841,7 @@ with col_right:
     loc = res.location if res else agent.project_state.location
     roof = "--- m²"
     panels = f"{res.panel_qty} panels ({res.panel_wp}W)" if res else "---"
-    inv = f"{res.inverter_qty}x {res.inverter_kw:.1f}kW {res.system_type.capitalize()}" if res else "---"
+    inv = f"{res.inverter_qty}x {res.inverter_brand}" if res else "---"
     batt = f"{res.battery_qty}x {res.battery_module_kwh}kWh" if res and res.system_type != 'grid-tied' else "---"
     load = f"{res.daily_energy_wh/1000:.1f} kWh/day" if res else "---"
     psh = f"{res.peak_sun_hours} h/day" if res else "---"
@@ -861,7 +863,7 @@ with col_right:
     # File Uploader in right panel
     st.markdown("---")
     st.caption("Upload File or Load Schedule")
-    uploaded_file = st.file_uploader("Drop here", label_visibility="collapsed", type=["csv", "xlsx", "pdf", "docx"], key="right_panel_uploader")
+    uploaded_file = st.file_uploader("Drop here", label_visibility="collapsed", type=["csv", "xlsx", "pdf", "docx", "json"], key="right_panel_uploader")
     if uploaded_file and st.session_state.get("_last_upload_rp") != uploaded_file.name:
         st.session_state["_last_upload_rp"] = uploaded_file.name
         if uploaded_file.name.endswith((".csv", ".xlsx", ".xls")):

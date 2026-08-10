@@ -1,9 +1,0 @@
-Dyness Stack280 High Voltage LiFePO4 Lithium Battery Module Datasheet
-Module Energy Capacity: 14.33 kWh
-Nominal Voltage: 384 V DC
-Operating Voltage Range: 336 V - 438 V DC
-Nominal Capacity: 280 Ah
-Depth of Discharge (DoD): 90%
-Cycle Life: 6000 cycles @ 25°C, 80% DoD
-Max Continuous Charge/Discharge Current: 100 A / 125 A
-Expansion: Up to 9 modules per stack (128.97 kWh per stack)

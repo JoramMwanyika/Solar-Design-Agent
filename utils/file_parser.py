@@ -36,7 +36,8 @@ def _parse_pdf(file_bytes: bytes) -> str:
         import pdfplumber
         text_parts = []
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            for page in pdf.pages:
+            # Limit to first 5 pages for token efficiency and performance
+            for page in pdf.pages[:5]:
                 text = page.extract_text()
                 if text:
                     text_parts.append(text)
@@ -104,6 +105,7 @@ def get_mime_type(filename: str) -> str:
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".txt": "text/plain",
         ".csv": "text/csv",
+        ".json": "application/json",
     }
     return mime_map.get(ext, "application/octet-stream")
 

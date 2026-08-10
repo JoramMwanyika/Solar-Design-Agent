@@ -204,25 +204,45 @@ def size_pv_array(daily_energy_kwh: float, psh: float, peak_demand_kw: float, pa
 
 def calculate_stringing(panel_qty: int, panel_voc: float, panel_vmp: float, max_inverter_vin: float, 
                         tmin_celsius: float, temp_coeff_k: float, panel_wp: float = 625.0,
-                        inverter_kw_std: float = 150.0, num_mppts: int = 8) -> Dict[str, Any]:
+                        inverter_kw_std: float = 150.0, num_mppts: int = 8, inverter_brand: str = "") -> Dict[str, Any]:
     """
-    Calculates maximum panels per string, panels per MPPT, and total strings per user directives.
+    Calculates maximum panels per string, panels per MPPT, and total strings per user directives
+    using exact inverter datasheet specifications and balanced layout distribution.
     """
+    from agent.system_sizer import load_inverter_specs, find_stringing_distribution, build_stringing_grid, select_inverter_model
+    
+    if not inverter_brand:
+        system_type = "grid-tied" if inverter_kw_std >= 80 else "hybrid"
+        inverter_brand = select_inverter_model(system_type, inverter_kw_std, 48.0)
+        
+    specs = load_inverter_specs(inverter_brand)
+    num_mppts = specs["num_mppts"]
+    inputs_per_mppt = specs["inputs_per_mppt"]
+    max_inverter_vin = specs["max_vin"]
+    
     voc_adjusted = panel_voc * (1.0 + temp_coeff_k * (tmin_celsius - 25.0))
     max_panels_per_string = max(1, math.floor(max_inverter_vin / max(1.0, voc_adjusted)))
+    min_panels_per_string = max(3, math.ceil(specs["mppt_min_v"] / panel_vmp))
     
-    # Panels per MPPT formula:
-    # 1. Max PV Input Power = Inverter kW * 1.5
-    # 2. Max Power per MPPT = Max PV Input Power / num_mppts
-    # 3. Panels per MPPT = floor(Max Power per MPPT / Panel kWp)
+    sol = find_stringing_distribution(
+        panel_qty=panel_qty,
+        num_mppts=num_mppts,
+        inputs_per_mppt=inputs_per_mppt,
+        min_panels_per_string=min_panels_per_string,
+        max_panels_per_string=max_panels_per_string
+    )
+    
+    grid = build_stringing_grid(sol, num_mppts, inputs_per_mppt)
+    
+    total_strings = sum(s for s, p in sol)
+    active_lengths = [p for s, p in sol if s > 0]
+    panels_per_string = int(round(sum(active_lengths) / len(active_lengths))) if active_lengths else 0
+    string_voltage_v = panels_per_string * panel_vmp
+    
     single_panel_kw = panel_wp / 1000.0
-    max_pv_input_kw = inverter_kw_std * 1.5
+    max_pv_input_kw = inverter_kw_std * (1.3 if specs.get("max_vin", 500.0) <= 500.0 else 1.5)
     max_kw_per_mppt = max_pv_input_kw / max(1, num_mppts)
     panels_per_mppt = max(1, math.floor(max_kw_per_mppt / single_panel_kw))
-
-    panels_per_string = min(max_panels_per_string, max(8, min(16, panel_qty // 2 or 1)))
-    total_strings = math.ceil(panel_qty / max(1, panels_per_string))
-    string_voltage_v = panels_per_string * panel_vmp
     
     return {
         "voc_adjusted": voc_adjusted,
@@ -230,7 +250,8 @@ def calculate_stringing(panel_qty: int, panel_voc: float, panel_vmp: float, max_
         "panels_per_string": panels_per_string,
         "total_strings": total_strings,
         "string_voltage_v": string_voltage_v,
-        "panels_per_mppt": panels_per_mppt
+        "panels_per_mppt": panels_per_mppt,
+        "stringing_grid": grid
     }
 
 def size_battery(system_type: str, daily_energy_kwh: float, days_of_autonomy: float, dod: float, 
@@ -261,7 +282,7 @@ def size_battery(system_type: str, daily_energy_kwh: float, days_of_autonomy: fl
         "battery_breaker_a": battery_breaker_a
     }
 
-def size_inverter(system_type: str, peak_demand_kw: float, total_pv_kwp: float, power_factor: float = 0.94) -> Dict[str, Any]:
+def size_inverter(system_type: str, peak_demand_kw: float, total_pv_kwp: float, power_factor: float = 0.94, system_voltage_dc: float = 48) -> Dict[str, Any]:
     """
     Selects standard inverter sizes based on load and PV.
     """
@@ -311,19 +332,19 @@ def size_inverter(system_type: str, peak_demand_kw: float, total_pv_kwp: float, 
     inverter_qty = int(best_qty)
     inverter_kva = inverter_kw_std if system_type in ("off-grid", "hybrid") else inverter_kw_std / 0.9
 
+    from agent.system_sizer import select_inverter_model
+    inverter_brand = select_inverter_model(system_type, inverter_kw_std, system_voltage_dc)
+
     if system_type == "grid-tied":
-        inverter_brand = "Huawei SUN2000 Commercial Series"
         voltage_architecture = "High Voltage (HV: 1100V DC)"
         max_inverter_vin = 1100.0
         num_mppts = 10 if inverter_kw_std >= 100 else (6 if inverter_kw_std >= 80 else 4)
     else:
-        if inverter_kw_std <= 15:
-            inverter_brand = "Deye / Solis Low Voltage (LV) Hybrid"
+        if system_voltage_dc <= 48 and inverter_kw_std <= 20:
             voltage_architecture = "Low Voltage (LV: 48V BESS / 500V DC)"
             max_inverter_vin = 500.0
             num_mppts = 2
         else:
-            inverter_brand = "Deye / Solis High Voltage (HV) Hybrid"
             voltage_architecture = "High Voltage (HV: 1000V DC / 384V BESS)"
             max_inverter_vin = 1000.0
             num_mppts = 8 if inverter_kw_std >= 80 else (6 if inverter_kw_std >= 30 else 4)
@@ -338,16 +359,55 @@ def size_inverter(system_type: str, peak_demand_kw: float, total_pv_kwp: float, 
         "num_mppts": num_mppts
     }
 
+def load_jinko_specs() -> Dict[str, Any]:
+    """Loads PV panel specs from the Jinko JSON datasheet if available, otherwise returns defaults."""
+    defaults = {
+        "panel_wp": 625,
+        "panel_voc": 49.28,
+        "panel_vmp": 41.52,
+        "panel_imp": 15.05,
+    }
+    try:
+        from pathlib import Path
+        import json
+        jinko_path = Path(__file__).parent.parent.parent / "datasheets/pv_modules/Jinko_TigerNeo_N-Type_625W.json"
+        if jinko_path.exists():
+            with open(jinko_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            elec = data.get("electrical_specifications", {})
+            return {
+                "panel_wp": int(elec.get("rated_maximum_power_pmax_wp", defaults["panel_wp"])),
+                "panel_voc": float(elec.get("open_circuit_voltage_voc_v", defaults["panel_voc"])),
+                "panel_vmp": float(elec.get("maximum_power_voltage_vmp_v", defaults["panel_vmp"])),
+                "panel_imp": float(elec.get("maximum_power_current_imp_a", defaults["panel_imp"])),
+            }
+    except Exception:
+        pass
+    return defaults
+
+
 def size_cables(string_voltage_v: float, panel_imp: float, dc_cable_distance_m: float, total_strings: int, 
-                inverter_kw_std: float, ac_cable_distance_m: float) -> Dict[str, Any]:
+                inverter_kw_std: float, ac_cable_distance_m: float, panel_voc: float = None, panels_per_string: int = None) -> Dict[str, Any]:
     """
     Calculates DC and AC cable sizes and voltage drops.
     """
-    dc_allowable_vd = string_voltage_v * 0.02
+    specs = load_jinko_specs()
+    if panel_voc is None:
+        panel_voc = specs["panel_voc"]
+    if panel_imp is None or panel_imp in (15.06, 15.05):
+        panel_imp = specs["panel_imp"]
+    
+    if panels_per_string is None:
+        panel_vmp = specs["panel_vmp"]
+        panels_per_string = max(1, round(string_voltage_v / panel_vmp))
+        
+    dc_allowable_vd = 0.03 * (panels_per_string * panel_voc)
     rho_copper = 0.0178
-    dc_area_calc = (panel_imp * rho_copper * 2.0 * dc_cable_distance_m) / max(1.0, dc_allowable_vd)
+    effective_L = max(50.0, dc_cable_distance_m)
+    
+    dc_area_calc = (panel_imp * rho_copper * 2.0 * effective_L) / max(0.1, dc_allowable_vd)
     dc_recommended_sqmm = 4 if dc_area_calc <= 4 else (6 if dc_area_calc <= 6 else 10)
-    dc_total_length = dc_cable_distance_m * 2.0 * total_strings
+    dc_total_length = effective_L * 2.0 * total_strings
     
     is_3phase = inverter_kw_std >= 10
     ac_voltage = 400.0 if is_3phase else 230.0

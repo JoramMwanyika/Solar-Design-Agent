@@ -1,0 +1,21 @@
+{
+  "manufacturer": "Dyness",
+  "model": "Stack280",
+  "type": "High Voltage LiFePO4 Lithium Battery Module",
+  "technical_specifications": {
+    "module_energy_capacity_kwh": 14.33,
+    "nominal_voltage_v": 384,
+    "operating_voltage_range_v": "336 V - 438 V DC",
+    "operating_voltage_min_v": 336,
+    "operating_voltage_max_v": 438,
+    "nominal_capacity_ah": 280,
+    "depth_of_discharge_dod": "90%",
+    "cycle_life": "6000 cycles @ 25°C, 80% DoD",
+    "max_continuous_charge_current_a": 100,
+    "max_continuous_discharge_current_a": 125,
+    "expansion": {
+      "max_modules_per_stack": 9,
+      "max_capacity_per_stack_kwh": 128.97
+    }
+  }
+}

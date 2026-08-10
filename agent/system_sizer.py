@@ -8,8 +8,79 @@ Implements exact IEC/AS-NZS engineering formulas and client workbook equations:
 - Battery stack & breaker sizing: Breaker = 1.25 * Max_I
 """
 import math
+import json
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
+
+
+def load_pv_panel_specs() -> dict:
+    """Loads PV panel specs from the Jinko JSON datasheet if available, otherwise returns defaults."""
+    defaults = {
+        "panel_wp": 625,
+        "panel_voc": 49.28,
+        "panel_vmp": 41.5,
+        "panel_imp": 15.06,
+    }
+    try:
+        jinko_path = Path(__file__).parent.parent / "datasheets/pv_modules/Jinko_TigerNeo_N-Type_625W.json"
+        if jinko_path.exists():
+            with open(jinko_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            elec = data.get("electrical_specifications", {})
+            return {
+                "panel_wp": int(elec.get("rated_maximum_power_pmax_wp", defaults["panel_wp"])),
+                "panel_voc": float(elec.get("open_circuit_voltage_voc_v", defaults["panel_voc"])),
+                "panel_vmp": float(elec.get("maximum_power_voltage_vmp_v", defaults["panel_vmp"])),
+                "panel_imp": float(elec.get("maximum_power_current_imp_a", defaults["panel_imp"])),
+            }
+    except Exception as e:
+        print(f"[Error loading Jinko datasheet in system_sizer]: {e}")
+    return defaults
+
+
+def select_inverter_model(system_type: str, inverter_kw_std: float, system_voltage_dc: float) -> str:
+    """
+    Selects standard inverter manufacturer model name/number based on capacity and system specs.
+    Aligns with datasheets:
+    - Grid-Tied: Huawei SUN2000 Series (L1 for residential single-phase, M1/M2/M3/M0/M1 for commercial three-phase)
+    - Off-Grid / Hybrid: Deye Low Voltage (LP3 / 48V) or High Voltage (HP3) Hybrid series.
+    """
+    kw_int = int(inverter_kw_std)
+    if system_type == "grid-tied":
+        if kw_int in (2, 3, 4, 5, 6):
+            return f"Huawei SUN2000-{kw_int}KTL-L1"
+        elif kw_int in (8, 10, 12, 15):
+            return f"Huawei SUN2000-{kw_int}KTL-M1"
+        elif kw_int == 20:
+            return f"Huawei SUN2000-20KTL-M2"
+        elif kw_int in (30, 36, 40):
+            return f"Huawei SUN2000-{kw_int}KTL-M3"
+        elif kw_int == 50:
+            return f"Huawei SUN2000-50KTL-M0"
+        elif kw_int == 80:
+            return f"Huawei SUN2000-80KTL-M0"
+        elif kw_int == 100:
+            return f"Huawei SUN2000-100KTL-M1"
+        elif kw_int == 150:
+            return f"Huawei SUN2000-150KTL-M0"
+        else:
+            return f"Huawei SUN2000-{kw_int}KTL-M3"
+    else:
+        # Off-Grid / Hybrid
+        if system_voltage_dc <= 48 and inverter_kw_std <= 20:
+            # Low Voltage (LV) Hybrid e.g. Deye SUN-3-12K-SG05LP3-EU-SM2
+            return f"Deye SUN-{kw_int}K-SG05LP3-EU-SM2"
+        else:
+            # High Voltage (HV) Hybrid
+            if kw_int <= 25:
+                return f"Deye SUN-{kw_int}K-SG01HP3-EU-AM2"
+            elif kw_int <= 50:
+                return f"Deye SUN-{kw_int}K-SG01HP3-EU-BM4"
+            elif kw_int <= 80:
+                return f"Deye SUN-{kw_int}K-SG02HP3-EU-EM6"
+            else:
+                return f"Deye SUN-{kw_int}K-SG01HP3-EU"
 
 
 @dataclass
@@ -54,6 +125,8 @@ class StringingResult:
     panels_per_mppt: int
     total_strings: int
     string_voltage_v: float
+    panels_per_string: int
+    stringing_grid: list = field(default_factory=list)
 
 
 @dataclass
@@ -136,6 +209,7 @@ class SizingResult:
                 "max_panels_per_string": self.stringing.max_panels_per_string if self.stringing else 0,
                 "total_strings": self.stringing.total_strings if self.stringing else 0,
                 "string_voltage_v": round(self.stringing.string_voltage_v, 1) if self.stringing else 0,
+                "stringing_grid": self.stringing.stringing_grid if self.stringing else [],
             } if self.stringing else {},
             "battery": {
                 "type": self.battery_type,
@@ -149,6 +223,8 @@ class SizingResult:
                 "kw": round(self.inverter_kw, 1),
                 "kva": round(self.inverter_kva, 1),
                 "qty": self.inverter_qty,
+                "brand": self.inverter_brand,
+                "voltage_architecture": self.voltage_architecture,
             },
             "cables": {
                 "dc_sqmm": self.cable_sizing.dc_recommended_cable_sqmm if self.cable_sizing else 4,
@@ -193,8 +269,8 @@ def size_system(
     battery_module_kwh: float = 14.33,
     panel_wp: int = 625,
     panel_voc: float = 49.28,
-    panel_vmp: float = 41.5,
-    panel_imp: float = 15.06,
+    panel_vmp: float = 41.52,
+    panel_imp: float = 15.05,
     max_inverter_vin: float = 1000.0,
     tmin_celsius: float = 10.0,
     temp_coeff_k: float = -0.0029,
@@ -258,8 +334,8 @@ def size_system_by_load_profile(
     battery_module_kwh: float = 14.33,
     panel_wp: int = 625,
     panel_voc: float = 49.28,
-    panel_vmp: float = 41.5,
-    panel_imp: float = 15.06,
+    panel_vmp: float = 41.52,
+    panel_imp: float = 15.05,
     max_inverter_vin: float = 1000.0,
     tmin_celsius: float = 10.0,
     temp_coeff_k: float = -0.0029,
@@ -308,8 +384,8 @@ def size_system_by_logged_data(
     battery_module_kwh: float = 14.33,
     panel_wp: int = 625,
     panel_voc: float = 49.28,
-    panel_vmp: float = 41.5,
-    panel_imp: float = 15.06,
+    panel_vmp: float = 41.52,
+    panel_imp: float = 15.05,
     max_inverter_vin: float = 1000.0,
     tmin_celsius: float = 10.0,
     temp_coeff_k: float = -0.0029,
@@ -429,8 +505,8 @@ def size_system_by_bill_analysis(
     battery_module_kwh: float = 14.33,
     panel_wp: int = 625,
     panel_voc: float = 49.28,
-    panel_vmp: float = 41.5,
-    panel_imp: float = 15.06,
+    panel_vmp: float = 41.52,
+    panel_imp: float = 15.05,
     max_inverter_vin: float = 1000.0,
     tmin_celsius: float = 10.0,
     temp_coeff_k: float = -0.0029,
@@ -476,6 +552,199 @@ def size_system_by_bill_analysis(
     )
 
 
+def load_inverter_specs(inverter_brand: str) -> dict:
+    """
+    Loads specifications of the chosen inverter brand/model from the generated JSON datasheets.
+    """
+    import os
+    import re
+    inv_dir = Path(__file__).parent.parent / "datasheets/inverters"
+    brand_lower = inverter_brand.lower()
+    
+    # 1. Determine JSON filename matching the brand
+    json_file = None
+    if "huawei" in brand_lower:
+        if "l1" in brand_lower or any(f"-{x}k" in brand_lower for x in [2,3,4,5,6]):
+            json_file = "Huawei_SUN2000-2-6KTL-L1.json"
+        else:
+            json_file = "Huawei_SUN2000-30-40KTL-M3.json"
+    elif "goodwe" in brand_lower or "gw" in brand_lower:
+        json_file = "GoodWe_GW5-20K-ET-L-G10.json"
+    elif "solis" in brand_lower:
+        json_file = "Solis_S6-EH3P30-50K-H.json"
+    elif "deye" in brand_lower or "sunsynk" in brand_lower:
+        # Re-ordered specific to general to avoid incorrect matching
+        if "em6" in brand_lower:
+            json_file = "Deye_SUN-60-80K-SG02HP3-EU-EM6.json"
+        elif "bm4" in brand_lower:
+            json_file = "Deye_SUN-25-50K-SG01HP3-EU-BM4.json"
+        elif "am2" in brand_lower or "sg01hp3" in brand_lower:
+            json_file = "Deye_SUN-5-25K-SG01HP3-EU-AM2.json"
+        elif "sg05lp1" in brand_lower or "lp1" in brand_lower:
+            json_file = "Deye_SUN-3.6-10K-SG05LP1-EU.json"
+        elif "sg05lp3" in brand_lower or "lp3" in brand_lower:
+            json_file = "Deye_SUN-3-12K-SG05LP3-EU-SM2.json"
+        else:
+            # Fallbacks based on size
+            m = re.search(r"sun-(\d+)k", brand_lower)
+            if m:
+                kw = int(m.group(1))
+                if kw <= 12:
+                    json_file = "Deye_SUN-3-12K-SG05LP3-EU-SM2.json"
+                elif kw <= 25:
+                    json_file = "Deye_SUN-5-25K-SG01HP3-EU-AM2.json"
+                elif kw <= 50:
+                    json_file = "Deye_SUN-25-50K-SG01HP3-EU-BM4.json"
+                else:
+                    json_file = "Deye_SUN-60-80K-SG02HP3-EU-EM6.json"
+            else:
+                json_file = "Deye_SUN-3-12K-SG05LP3-EU-SM2.json"
+                
+    if not json_file:
+        json_file = "Deye_SUN-3-12K-SG05LP3-EU-SM2.json"
+
+    specs_path = inv_dir / json_file
+    if not specs_path.exists():
+        # Sensible defaults matching the system type voltage tier
+        is_hv = "hv" in brand_lower or "em6" in brand_lower or "bm4" in brand_lower or "am2" in brand_lower or "m3" in brand_lower or "solis" in brand_lower
+        return {
+            "num_mppts": 4 if is_hv else 2,
+            "inputs_per_mppt": 2 if is_hv else 1,
+            "max_vin": 1000.0 if is_hv else 500.0,
+            "mppt_min_v": 200.0 if is_hv else 40.0,
+            "mppt_max_v": 850.0 if is_hv else 460.0,
+        }
+        
+    try:
+        with open(specs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        ts = data.get("technical_specifications", {})
+        dc = ts.get("dc_input", ts)
+        
+        num_mppts = dc.get("number_of_mppt") or dc.get("mppt_qty") or 2
+        max_vin = dc.get("max_dc_input_voltage_v") or dc.get("max_dc_input_voltage_vin_max_v") or 800.0
+        mppt_min = dc.get("mppt_voltage_min_v") or dc.get("mppt_operating_voltage_min_v") or 150.0
+        mppt_max = dc.get("mppt_voltage_max_v") or dc.get("mppt_operating_voltage_max_v") or 850.0
+        
+        # Inputs per MPPT mapping
+        inputs_per_mppt = 1
+        if "huawei" in brand_lower:
+            inputs_per_mppt = 1 if "l1" in brand_lower else 2
+        elif "solis" in brand_lower:
+            inputs_per_mppt = 2
+        elif "deye" in brand_lower:
+            if any(x in brand_lower for x in ["am2", "bm4", "em6", "hp3"]):
+                inputs_per_mppt = 2
+            else:
+                inputs_per_mppt = 1
+                
+        return {
+            "num_mppts": int(num_mppts),
+            "inputs_per_mppt": int(inputs_per_mppt),
+            "max_vin": float(max_vin),
+            "mppt_min_v": float(mppt_min),
+            "mppt_max_v": float(mppt_max),
+        }
+    except Exception:
+        return {
+            "num_mppts": 2,
+            "inputs_per_mppt": 1,
+            "max_vin": 500.0,
+            "mppt_min_v": 40.0,
+            "mppt_max_v": 460.0,
+        }
+
+
+def find_stringing_distribution(panel_qty: int, num_mppts: int, inputs_per_mppt: int, min_panels_per_string: int, max_panels_per_string: int) -> list:
+    """
+    Finds the optimal allocation of strings to MPPTs.
+    Returns a list of length `num_mppts`, where each element is (num_strings, panels_per_string).
+    """
+    solutions = []
+    
+    # DFS to find all valid string allocations
+    def search(mppt_idx, current_alloc, remaining_panels):
+        if mppt_idx == num_mppts:
+            if remaining_panels == 0:
+                solutions.append(list(current_alloc))
+            return
+            
+        # Try s_i = 0
+        search(mppt_idx + 1, current_alloc + [(0, 0)], remaining_panels)
+        
+        # Try s_i strings (from 1 up to inputs_per_mppt)
+        for s in range(1, inputs_per_mppt + 1):
+            for p in range(min_panels_per_string, max_panels_per_string + 1):
+                use_panels = s * p
+                if use_panels <= remaining_panels:
+                    search(mppt_idx + 1, current_alloc + [(s, p)], remaining_panels - use_panels)
+
+    search(0, [], panel_qty)
+    
+    if not solutions:
+        # Fallback if no exact solution fits: distribute panels as evenly as possible using 1 string per MPPT
+        # up to max_panels_per_string
+        fallback = []
+        rem = panel_qty
+        for i in range(num_mppts):
+            if rem <= 0:
+                fallback.append((0, 0))
+            else:
+                take = min(rem, max_panels_per_string)
+                fallback.append((1, take))
+                rem -= take
+        return fallback
+
+    # Score solutions to pick the absolute best one
+    best_sol = None
+    best_score = float('inf')
+    
+    for sol in solutions:
+        active_p = [p for s, p in sol if s > 0]
+        active_s = [s for s, p in sol if s > 0]
+        
+        if not active_p:
+            continue
+            
+        p_max = max(active_p)
+        p_min = min(active_p)
+        p_diff = p_max - p_min  # minimize string length diff between trackers
+        
+        s_max = max(active_s)
+        s_min = min(active_s)
+        s_diff = s_max - s_min  # minimize parallel string count diff between trackers
+        
+        total_s = sum(active_s)
+        num_active = len(active_p)
+        
+        # Calculate average string length
+        avg_len = sum(p for s, p in sol if s > 0) / len(active_p)
+        
+        # Score prioritizing:
+        # 1. Fewer total strings (lower installation complexity)
+        # 2. Balanced loading between trackers
+        # 3. Longer string lengths (higher DC voltage, closer to inverter rated voltage)
+        score = (total_s * 1000) + (p_diff * 100) + (s_diff * 50) - (avg_len * 10) - (num_active * 5)
+        
+        if score < best_score:
+            best_score = score
+            best_sol = sol
+            
+    return best_sol
+
+
+def build_stringing_grid(sol: list, num_mppts: int, inputs_per_mppt: int) -> list:
+    """
+    Transforms [(num_strings, panels_per_string), ...] into a 2D grid
+    of shape (inputs_per_mppt, num_mppts) containing panel count integers.
+    """
+    grid = [[None] * num_mppts for _ in range(inputs_per_mppt)]
+    for mppt_idx, (num_strings, panels_per_string) in enumerate(sol):
+        for s_idx in range(num_strings):
+            grid[s_idx][mppt_idx] = panels_per_string
+    return grid
+
+
 def _execute_core_sizing_math(
     system_type: str,
     daily_energy_wh: float,
@@ -500,6 +769,16 @@ def _execute_core_sizing_math(
     """
     Unified core calculation engine executing precise workbook equations.
     """
+    specs = load_pv_panel_specs()
+    if panel_wp == 625:
+        panel_wp = specs["panel_wp"]
+    if panel_voc == 49.28:
+        panel_voc = specs["panel_voc"]
+    if panel_vmp in (41.5, 41.52):
+        panel_vmp = specs["panel_vmp"]
+    if panel_imp in (15.06, 15.05):
+        panel_imp = specs["panel_imp"]
+
     psh = get_psh(location)
     
     # Direct Sizing: No losses included per explicit user directive (Simply Energy / Peak Sun Hours)
@@ -568,38 +847,65 @@ def _execute_core_sizing_math(
     # Enforce User Directives for Inverter Brand & Architecture:
     # 1. Grid-tied -> Huawei inverters
     # 2. Off-grid / Hybrid -> Deye or Solis inverters (Check Low Voltage vs High Voltage)
+    inverter_brand = select_inverter_model(system_type, inverter_kw_std, system_voltage_dc)
+    
+    # Load exact datasheet specs
+    specs = load_inverter_specs(inverter_brand)
+    num_mppts = specs["num_mppts"]
+    inputs_per_mppt = specs["inputs_per_mppt"]
+    max_inverter_vin = specs["max_vin"]
+    
     if system_type == "grid-tied":
-        inverter_brand = "Huawei SUN2000 Commercial Series"
-        voltage_architecture = "High Voltage (HV: 1100V DC)"
-        max_inverter_vin = 1100.0
-        num_mppts = 10 if inverter_kw_std >= 100 else (6 if inverter_kw_std >= 80 else 4)
+        voltage_architecture = f"High Voltage (HV: {int(max_inverter_vin)}V DC)"
     else:
-        # Off-Grid / Hybrid
-        if system_voltage_dc <= 48 and inverter_kw_std <= 15:
-            inverter_brand = "Deye / Solis Low Voltage (LV) Hybrid"
-            voltage_architecture = "Low Voltage (LV: 48V BESS / 500V DC)"
-            max_inverter_vin = 500.0
-            num_mppts = 2
+        if system_voltage_dc <= 48 and inverter_kw_std <= 20:
+            voltage_architecture = f"Low Voltage (LV: 48V BESS / {int(max_inverter_vin)}V DC)"
         else:
-            inverter_brand = "Deye / Solis High Voltage (HV) Hybrid"
-            voltage_architecture = "High Voltage (HV: 1000V DC / 384V BESS)"
-            max_inverter_vin = 1000.0
-            num_mppts = 8 if inverter_kw_std >= 80 else (6 if inverter_kw_std >= 30 else 4)
+            voltage_architecture = f"High Voltage (HV: {int(max_inverter_vin)}V DC / 384V BESS)"
 
-    # 4. Stringing & MPPT Calculations
-    # Panels per MPPT per User Directive:
-    # (Max PV Input Power / Number of MPPTs) / Power of selected panel
-    max_pv_input_kw = inverter_kw_std * (1.3 if system_voltage_dc <= 48 else 1.5)
-    max_power_per_mppt_kw = max_pv_input_kw / num_mppts
-    panels_per_mppt = max(1, math.floor(max_power_per_mppt_kw / single_module_kw))
-
+    # 4. Stringing & MPPT Calculations using exact datasheet limits
     # Max panels per string = floor( Max Vin / (Voc * (1 + K * (Tmin - 25))) )
     voc_adjusted = panel_voc * (1.0 + temp_coeff_k * (tmin_celsius - 25.0))
     max_panels_per_string = max(1, math.floor(max_inverter_vin / voc_adjusted))
     
-    panels_per_string = min(max_panels_per_string, max(8, min(16, panel_qty // 2 or 1)))
-    total_strings = math.ceil(panel_qty / panels_per_string)
+    # Minimum panels to start the inverter MPPT
+    min_panels_per_string = max(3, math.ceil(specs["mppt_min_v"] / panel_vmp))
+    
+    # Partition panels to each inverter unit
+    panels_per_inverter = panel_qty // inverter_qty
+    remainder = panel_qty % inverter_qty
+    
+    # Sizing for the primary inverter unit
+    target_qty = panels_per_inverter + (1 if remainder > 0 else 0)
+    
+    # Optimal distribution search
+    sol = find_stringing_distribution(
+        panel_qty=target_qty,
+        num_mppts=num_mppts,
+        inputs_per_mppt=inputs_per_mppt,
+        min_panels_per_string=min_panels_per_string,
+        max_panels_per_string=max_panels_per_string
+    )
+    
+    grid = build_stringing_grid(sol, num_mppts, inputs_per_mppt)
+    
+    # Compute active strings and panels per string from the solution
+    total_strings_per_inv = sum(s for s, p in sol)
+    total_strings = total_strings_per_inv * inverter_qty
+    
+    active_lengths = [p for s, p in sol if s > 0]
+    if active_lengths:
+        panels_per_string = int(round(sum(active_lengths) / len(active_lengths)))
+    else:
+        panels_per_string = 0
+        
     string_voltage_v = panels_per_string * panel_vmp
+    
+    # Panels per MPPT formula:
+    # (Max PV Input Power / Number of MPPTs) / Power of selected panel
+    max_pv_input_kw = inverter_kw_std * (1.3 if system_voltage_dc <= 48 else 1.5)
+    max_power_per_mppt_kw = max_pv_input_kw / num_mppts
+    panels_per_mppt = max(1, math.floor(max_power_per_mppt_kw / single_module_kw))
     
     stringing = StringingResult(
         panel_wp=panel_wp,
@@ -611,6 +917,8 @@ def _execute_core_sizing_math(
         panels_per_mppt=panels_per_mppt,
         total_strings=total_strings,
         string_voltage_v=string_voltage_v,
+        panels_per_string=panels_per_string,
+        stringing_grid=grid,
     )
     
     # 5. Battery Sizing (Off-Grid / Hybrid)
@@ -638,12 +946,14 @@ def _execute_core_sizing_math(
         battery_breaker_a = max(125.0, math.ceil((max_charge_current * 1.25) / 25) * 25)
 
     # 6. Cable & Switchgear Sizing (Exact workbook formulas)
-    # DC Cable Cross-Sectional Area: C.A (mm²) = (I * rho * 2 * L) / V.D
-    dc_allowable_vd = string_voltage_v * 0.02 # 2% drop allowed
-    rho_copper = 0.0178 # ohm.mm²/m
-    dc_area_calc = (panel_imp * rho_copper * 2.0 * dc_cable_distance_m) / max(1.0, dc_allowable_vd)
+    # Voltage Drop (V.D) = 0.03 * (No of panels in largest selected string * Voc of selected panel)
+    dc_allowable_vd = 0.03 * (panels_per_string * panel_voc)
+    rho_copper = 0.0178 # ohm.mm²/m (r)
+    # L should not be less than 50m
+    effective_L = max(50.0, dc_cable_distance_m)
+    dc_area_calc = (panel_imp * rho_copper * 2.0 * effective_L) / max(0.1, dc_allowable_vd)
     dc_recommended_sqmm = 4 if dc_area_calc <= 4 else (6 if dc_area_calc <= 6 else 10)
-    dc_total_length = dc_cable_distance_m * 2.0 * total_strings
+    dc_total_length = effective_L * 2.0 * total_strings
     
     # AC Cable & Breaker Sizing (3-Phase 400V or 1-Phase 230V)
     is_3phase = inverter_kw_std >= 10
@@ -738,8 +1048,8 @@ def format_sizing_summary(result: SizingResult) -> str:
         f"| **Proposed DC Capacity** | `{result.total_pv_kwp:.2f} kWp` | Based on target daily energy & peak sun hours |",
         f"| **Selected Module Rating** | `{result.panel_wp} Wp` (`{result.panel_wp/1000:.3f} kWp`) | High-efficiency monocrystalline PV module |",
         f"| **Total PV Modules Required** | `{result.panel_qty} pcs` | Rule: `ceil({result.total_pv_kwp:.2f} / {result.panel_wp/1000:.3f})` |",
-        f"| **Inverter Brand / Family** | `{result.inverter_brand}` | Grid-Tied -> Huawei | Hybrid/Off-Grid -> Deye / Solis |",
-        f"| **Voltage Architecture** | `{result.voltage_architecture}` | Low Voltage (LV 48V) vs High Voltage (HV) |",
+        f"| **Selected Inverter Model** | `{result.inverter_brand}` | Grid-Tied → Huawei SUN2000 / Hybrid → Deye Hybrid |",
+        f"| **Voltage Architecture** | `{result.voltage_architecture}` | LV: 48V BESS / 500V DC / HV: 384V+ BESS / 1000V DC |",
         f"| **Proposed Inverter Size** | `{result.inverter_kw:.1f} kW` (`{result.inverter_kva:.1f} kVA`) | Sized with `1.25x` safety factor |",
         f"| **No. of Inverters** | `{result.inverter_qty} pcs` | Total AC Capacity: `{result.inverter_kw * result.inverter_qty:.1f} kW` |",
         "",
@@ -753,6 +1063,22 @@ def format_sizing_summary(result: SizingResult) -> str:
         f"| **Total Number of Strings** | `{result.stringing.total_strings} strings` | Recommended stringing distribution |",
         f"| **Operating String Voltage** | `{result.stringing.string_voltage_v:.1f} V DC` | Optimal MPPT tracking window |",
     ]
+
+    if result.stringing and hasattr(result.stringing, "stringing_grid") and result.stringing.stringing_grid:
+        grid = result.stringing.stringing_grid
+        lines += [
+            "",
+            "#### 📊 MPPT Stringing Grid Configuration Detail",
+            "*(Number of panels per Input string, mapped to each MPP Tracker)*",
+            "",
+            "| Input \\ MPPT | " + " | ".join(f"**MPPT {i+1}**" for i in range(len(grid[0]))) + " |",
+            "|---| " + " | ".join("---" for _ in range(len(grid[0]))) + " |"
+        ]
+        for row_idx, row in enumerate(grid):
+            row_cols = []
+            for val in row:
+                row_cols.append(f"**{val}**" if val is not None else "-")
+            lines.append(f"| **Input {row_idx + 1}** | " + " | ".join(row_cols) + " |")
 
     if result.system_type in ("off-grid", "hybrid"):
         lines += [
@@ -796,7 +1122,7 @@ def format_sizing_summary(result: SizingResult) -> str:
             "### 🛠️ 6. DC String & AC Feeder Cable Sizing",
             "| Circuit | Cable Specification | Voltage Drop Check | Breaker / Protection |",
             "|---|---|---|---|",
-            f"| **PV DC String Cable** | `{cs.dc_recommended_cable_sqmm} mm²` TCU/XLPO (`1.5/1.5kVdc`) | Formula: `I*rho*2L / VD` (Total length: `{cs.dc_total_length_m:.0f} m`) | 1000V DC Isolator & Type II SPD |",
+            f"| **PV DC String Cable** | `{cs.dc_recommended_cable_sqmm} mm²` TCU/XLPO (`1.5/1.5kVdc`) | Formula: `I*r*2L / VD` (Total length: `{cs.dc_total_length_m:.0f} m`) | 1000V DC Isolator & Type II SPD |",
             f"| **AC Main Feeder Cable** | `1 run of 4-core {cs.ac_cable_area_sqmm} mm²` CU/XLPE/PVC (`{cs.ac_distance_m:.0f} m`) | V.D Check: `{cs.ac_voltage_drop_pct}%` (`{cs.ac_voltage_drop_v}V`) vs Allowable `20.75V` | AC Board Breaker: `{cs.ac_breaker_rating_a:.1f} A` |",
         ]
 

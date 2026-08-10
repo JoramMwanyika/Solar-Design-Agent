@@ -1,0 +1,64 @@
+{
+  "manufacturer": "Deye",
+  "series": "SUN-SG05LP3-EU-SM2",
+  "type": "3-Phase Low Voltage (LV) Hybrid Inverter",
+  "models": [
+    "SUN-3K-SG05LP3-EU-SM2",
+    "SUN-4K-SG05LP3-EU-SM2",
+    "SUN-5K-SG05LP3-EU-SM2",
+    "SUN-6K-SG05LP3-EU-SM2",
+    "SUN-8K-SG05LP3-EU-SM2",
+    "SUN-10K-SG05LP3-EU-SM2",
+    "SUN-12K-SG05LP3-EU-SM2"
+  ],
+  "technical_specifications": {
+    "rated_power_kw_range": [
+      3,
+      4,
+      5,
+      6,
+      8,
+      10,
+      12
+    ],
+    "peak_power_factor": "2x rated power for 10s",
+    "dc_input": {
+      "max_dc_input_voltage_v": 500,
+      "mppt_voltage_range_v": "40 V – 460 V",
+      "mppt_voltage_min_v": 40,
+      "mppt_voltage_max_v": 460,
+      "number_of_mppt": 2,
+      "max_pv_input_power_kw": 14.4,
+      "max_short_circuit_current_per_mppt_a": 15
+    },
+    "ac_output": {
+      "nominal_voltage_v": "230V / 400V 3-Phase + N",
+      "frequency_hz": "50 / 60",
+      "phases": 3,
+      "max_output_current_a": 18.1,
+      "power_factor": "> 0.99",
+      "thd": "< 3%"
+    },
+    "battery_interface": {
+      "battery_voltage_range_v": "40 V – 60 V",
+      "battery_type": "Low Voltage (LV) Lithium / Lead-Acid",
+      "max_charge_current_a": 100,
+      "max_discharge_current_a": 100,
+      "bms_communication": "CAN / RS485"
+    },
+    "efficiency": {
+      "max_efficiency_pct": 97.7,
+      "euro_efficiency_pct": 97.2
+    },
+    "protection": {
+      "ingress_protection": "IP65",
+      "operating_temperature_c": "-25 to +60"
+    },
+    "safety_and_standards": [
+      "IEC 62109-1/2",
+      "IEC 61000-3-11",
+      "IEC 61000-3-12",
+      "EN 50549"
+    ]
+  }
+}

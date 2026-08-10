@@ -53,6 +53,8 @@ class ProjectState:
     inverter_kw: float = 0.0
     inverter_kva: float = 0.0
     inverter_qty: int = 1
+    inverter_brand: str = "Huawei SUN2000 Series"
+    voltage_architecture: str = "High Voltage (HV: 1000V DC)"
     ac_breaker_a: float = 0.0
     
     # 7. Cable & Protection
@@ -63,7 +65,7 @@ class ProjectState:
     boq_items: List[Dict[str, Any]] = field(default_factory=list)
     engineering_review: str = ""
     warnings: List[str] = field(default_factory=list)
-
+ 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "project_name": self.project_name,
@@ -100,6 +102,8 @@ class ProjectState:
             "inverter_kw": self.inverter_kw,
             "inverter_kva": self.inverter_kva,
             "inverter_qty": self.inverter_qty,
+            "inverter_brand": self.inverter_brand,
+            "voltage_architecture": self.voltage_architecture,
             "ac_breaker_a": self.ac_breaker_a,
             "dc_cable_mm2": self.dc_cable_mm2,
             "ac_cable_mm2": self.ac_cable_mm2,

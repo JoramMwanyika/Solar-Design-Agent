@@ -1,0 +1,22 @@
+{
+  "manufacturer": "Jinko",
+  "model": "Tiger Neo N-Type 625W",
+  "type": "Monocrystalline PV Module",
+  "electrical_specifications": {
+    "rated_maximum_power_pmax_wp": 625,
+    "open_circuit_voltage_voc_v": 49.28,
+    "short_circuit_current_isc_a": 15.90,
+    "maximum_power_voltage_vmp_v": 41.52,
+    "maximum_power_current_imp_a": 15.05,
+    "module_efficiency": "22.36%",
+    "temperature_coefficient_of_voc_k": "-0.25 %/°C",
+    "maximum_system_voltage_v": 1500
+  },
+  "physical_specifications": {
+    "dimensions_mm": "2382 x 1134 x 30",
+    "length_mm": 2382,
+    "width_mm": 1134,
+    "thickness_mm": 30,
+    "weight_kg": 33.5
+  }
+}

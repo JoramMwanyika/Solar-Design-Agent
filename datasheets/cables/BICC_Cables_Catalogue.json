@@ -1,0 +1,95 @@
+{
+  "catalogue_name": "BICC Cables Technical Specifications & Sizing Catalogue",
+  "description": "Copper PV Solar Cables & Low Voltage Armored Cables",
+  "solar_pv_string_dc_cables": [
+    {
+      "cross_section_mm2": 4.0,
+      "type": "Twin-Core / Single-Core",
+      "max_current_a": 55,
+      "temperature_rating_c": 60,
+      "resistance_ohm_per_km": 4.95
+    },
+    {
+      "cross_section_mm2": 6.0,
+      "type": "Twin-Core / Single-Core",
+      "max_current_a": 70,
+      "temperature_rating_c": 60,
+      "resistance_ohm_per_km": 3.30
+    },
+    {
+      "cross_section_mm2": 10.0,
+      "type": "Twin-Core / Single-Core",
+      "max_current_a": 98,
+      "temperature_rating_c": 60,
+      "resistance_ohm_per_km": 1.91
+    }
+  ],
+  "low_voltage_armored_ac_cables": [
+    {
+      "cross_section_mm2": 16.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 91,
+      "voltage_drop_mv_per_a_per_m": 2.4
+    },
+    {
+      "cross_section_mm2": 25.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 119,
+      "voltage_drop_mv_per_a_per_m": 1.5
+    },
+    {
+      "cross_section_mm2": 35.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 144,
+      "voltage_drop_mv_per_a_per_m": 1.1
+    },
+    {
+      "cross_section_mm2": 50.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 175,
+      "voltage_drop_mv_per_a_per_m": 0.87
+    },
+    {
+      "cross_section_mm2": 70.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 222,
+      "voltage_drop_mv_per_a_per_m": 0.60
+    },
+    {
+      "cross_section_mm2": 95.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 269,
+      "voltage_drop_mv_per_a_per_m": 0.45
+    },
+    {
+      "cross_section_mm2": 120.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 312,
+      "voltage_drop_mv_per_a_per_m": 0.37
+    },
+    {
+      "cross_section_mm2": 150.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 353,
+      "voltage_drop_mv_per_a_per_m": 0.30
+    },
+    {
+      "cross_section_mm2": 185.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 405,
+      "voltage_drop_mv_per_a_per_m": 0.25
+    },
+    {
+      "cross_section_mm2": 240.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 477,
+      "voltage_drop_mv_per_a_per_m": 0.19
+    },
+    {
+      "cross_section_mm2": 300.0,
+      "type": "4-Core SWA (0.6/1kV 3-Phase 4-Core XLPE/SWA/PVC)",
+      "current_capacity_in_air_a": 543,
+      "voltage_drop_mv_per_a_per_m": 0.16
+    }
+  ]
+}

@@ -359,6 +359,8 @@ class SolarAgent:
         self.project_state.inverter_kw = result.inverter_kw
         self.project_state.inverter_kva = result.inverter_kva
         self.project_state.inverter_qty = result.inverter_qty
+        self.project_state.inverter_brand = result.inverter_brand
+        self.project_state.voltage_architecture = result.voltage_architecture
         self.project_state.battery_qty = result.battery_qty
         self.project_state.total_storage_kwh = result.total_storage_kwh
         self.project_state.usable_storage_kwh = getattr(result, "usable_storage_kwh", result.total_storage_kwh * result.dod)

@@ -38,22 +38,14 @@ def load_all_datasheets() -> Dict[str, Any]:
 
         content = ""
         try:
-            if fp.endswith((".txt", ".md")):
-                with open(fp, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-            elif fp.endswith(".json"):
+            if fp.endswith(".json"):
                 with open(fp, "r", encoding="utf-8") as f:
                     content = f.read()
-            elif fp.endswith((".csv", ".xlsx", ".xls")):
-                import pandas as pd
-                df = pd.read_csv(fp) if fp.endswith(".csv") else pd.read_excel(fp)
-                content = df.to_string(index=False)
-            elif fp.endswith(".pdf"):
-                from utils.file_parser import parse_pdf
-                content = parse_pdf(fp)
-            elif fp.endswith(".docx"):
-                from utils.file_parser import parse_docx
-                content = parse_docx(fp)
+            else:
+                with open(fp, "rb") as f:
+                    file_bytes = f.read()
+                from utils.file_parser import parse_uploaded_file
+                content = parse_uploaded_file(file_bytes, filename)
         except Exception as e:
             content = f"[Error reading file {filename}: {e}]"
 

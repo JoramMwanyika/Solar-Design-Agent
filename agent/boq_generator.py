@@ -26,6 +26,8 @@ def generate_boq(sizing: dict, project_name: str = "Solar PV System") -> List[Di
     panel_wp = sizing.get("panel_wp", 625)
     inverter_kw = sizing.get("inverter", {}).get("kw", 50)
     inverter_qty = sizing.get("inverter", {}).get("qty", 1)
+    inverter_brand = sizing.get("inverter", {}).get("brand", "")
+    voltage_arch = sizing.get("inverter", {}).get("voltage_architecture", "")
     
     battery_info = sizing.get("battery", {})
     battery_qty = battery_info.get("qty", 0)
@@ -109,7 +111,10 @@ def generate_boq(sizing: dict, project_name: str = "Solar PV System") -> List[Di
     })
 
     # 4. Inverters & BESS
-    inv_desc = f"{inverter_kw}kW On-Grid / Hybrid 3-Phase Solar Inverter (Deye / Huawei / GoodWe / Sungrow)"
+    if inverter_brand:
+        inv_desc = f"{inverter_brand} ({inverter_kw:.0f}kW 3-Phase Solar Inverter)"
+    else:
+        inv_desc = f"{inverter_kw}kW On-Grid / Hybrid 3-Phase Solar Inverter (Deye / Huawei / GoodWe / Sungrow)"
     boq.append({
         "item_no": "4.1",
         "category": "Power Conversion",
@@ -118,7 +123,7 @@ def generate_boq(sizing: dict, project_name: str = "Solar PV System") -> List[Di
         "quantity": inverter_qty,
         "unit_cost": "",
         "total_cost": "",
-        "remarks": "Includes Wi-Fi/4G smart dongle and CT current sensors for zero-export"
+        "remarks": f"{voltage_arch} — Includes Wi-Fi/4G smart dongle and CT current sensors" if voltage_arch else "Includes Wi-Fi/4G smart dongle and CT current sensors for zero-export"
     })
 
     if system_type in ("off-grid", "hybrid") and battery_qty > 0:
@@ -644,7 +649,57 @@ def generate_sizing_and_design_workbook(
         ["Total Number of Strings", f"{string_info.get('total_strings', 4)} strings", "Optimal parallel string distribution"],
         ["Operating String Voltage", f"{string_info.get('string_voltage_v', 650):.1f} V DC", "Well within inverter MPPT tracking voltage window"],
     ]
-    write_table(ws2, 4, ["PV Array Parameter", "Specification", "Engineering Formula / Verification"], pv_rows, {1: 32, 2: 30, 3: 55})
+    next_row = write_table(ws2, 4, ["PV Array Parameter", "Specification", "Engineering Formula / Verification"], pv_rows, {1: 32, 2: 30, 3: 55})
+    
+    # ── Draw Visual MPPT Stringing Grid ──
+    grid = string_info.get("stringing_grid", [])
+    if grid and len(grid) > 0 and len(grid[0]) > 0:
+        # Title of the Stringing Grid
+        ws2.merge_cells(start_row=next_row, start_column=1, end_row=next_row, end_column=len(grid[0]) + 1)
+        title_cell = ws2.cell(row=next_row, column=1, value="  MPPT(STRINGING) CONFIGURATION DETAIL (PANELS PER INPUT)")
+        title_cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        title_cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        title_cell.alignment = Alignment(vertical="center")
+        ws2.row_dimensions[next_row].height = 24
+        next_row += 1
+        
+        # Grid Headers (MPPT 1, MPPT 2...)
+        c = ws2.cell(row=next_row, column=1, value="Input \\ MPPT")
+        c.font = Font(name="Calibri", size=10, bold=True, italic=True)
+        c.border = thin_border
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        
+        for col_idx in range(len(grid[0])):
+            c = ws2.cell(row=next_row, column=col_idx + 2, value=col_idx + 1)
+            c.font = bold_font
+            c.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+            c.border = thin_border
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            
+            # Ensure appropriate column widths for the MPPT grid columns
+            col_letter = get_column_letter(col_idx + 2)
+            ws2.column_dimensions[col_letter].width = 15
+            
+        ws2.row_dimensions[next_row].height = 20
+        next_row += 1
+        
+        # Grid Values
+        for row_idx in range(len(grid)):
+            c = ws2.cell(row=next_row, column=1, value=row_idx + 1)
+            c.font = bold_font
+            c.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+            c.border = thin_border
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            
+            for col_idx in range(len(grid[0])):
+                val = grid[row_idx][col_idx]
+                val_str = str(val) if val is not None else ""
+                c = ws2.cell(row=next_row, column=col_idx + 2, value=val_str)
+                c.font = bold_font if val is not None else data_font
+                c.border = thin_border
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            ws2.row_dimensions[next_row].height = 20
+            next_row += 1
 
     # ── Sheet 3: Battery Storage (BESS) ──
     ws3 = wb.create_sheet(title="3. Battery Storage (BESS)")
@@ -669,7 +724,10 @@ def generate_sizing_and_design_workbook(
     format_title_banner(ws4, "Inverter Selection & AC Switchboard Configuration", cols=4)
     
     inv_info = sizing.get("inverter", {})
+    inv_brand = inv_info.get("brand", "On-Grid / Hybrid Solar Inverter")
+    inv_volt_arch = inv_info.get("voltage_architecture", "")
     inv_rows = [
+        ["Selected Inverter Model", f"{inv_brand}", f"{inv_info.get('qty', 1)} unit(s) — {inv_volt_arch}" if inv_volt_arch else f"{inv_info.get('qty', 1)} unit(s)"],
         ["Inverter Power Capacity", f"{inv_info.get('kw', 50):.1f} kW ({inv_info.get('kva', 50):.1f} kVA)", "Sized against peak demand with 1.25x safety margin"],
         ["Number of Inverters", f"{inv_info.get('qty', 1)} pcs", "3-Phase / 1-Phase inverter configuration"],
         ["Total Installed AC Capacity", f"{inv_info.get('kw', 50) * inv_info.get('qty', 1):.1f} kW", "Combined continuous output"],
@@ -687,7 +745,7 @@ def generate_sizing_and_design_workbook(
     
     cables_info = sizing.get("cables", {})
     cable_rows = [
-        ["PV DC String Cable Cross-Section", f"{cables_info.get('dc_sqmm', 4)} mm² TCU/XLPO (1.5/1.5kVdc)", f"Formula: I*rho*2L / VD (Total run: {cables_info.get('dc_total_m', 120):.0f} m)"],
+        ["PV DC String Cable Cross-Section", f"{cables_info.get('dc_sqmm', 4)} mm² TCU/XLPO (1.5/1.5kVdc)", f"Formula: I*r*2L / VD (Total run: {cables_info.get('dc_total_m', 120):.0f} m)"],
         ["AC Main Feeder Cable", f"1 run of 4-core {cables_info.get('ac_sqmm', 25)} mm² CU/XLPE/PVC", f"V.D check: {cables_info.get('ac_vd_pct', 2.5):.2f}% ({cables_info.get('ac_vd_v', 10):.1f}V) over {cables_info.get('ac_dist_m', 100):.0f}m"],
         ["Inverter to PVDB Earthing Cable", "16 mm² CU/PVC (450/750V)", "Estimated run length: 15 m"],
         ["PVDB to Main Earth Bar Cable", "16 mm² CU/PVC (450/750V)", "Estimated run length: 40 m"],

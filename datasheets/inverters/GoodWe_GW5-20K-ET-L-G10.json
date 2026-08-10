@@ -1,0 +1,64 @@
+{
+  "manufacturer": "GoodWe",
+  "series": "GW-ET-L-G10",
+  "type": "3-Phase Low Voltage (LV) Hybrid Inverter",
+  "models": [
+    "GW5K-ET-L-G10",
+    "GW6K-ET-L-G10",
+    "GW8K-ET-L-G10",
+    "GW10K-ET-L-G10",
+    "GW12K-ET-L-G10",
+    "GW15K-ET-L-G10",
+    "GW20K-ET-L-G10"
+  ],
+  "technical_specifications": {
+    "rated_power_kw_range": [
+      5,
+      6,
+      8,
+      10,
+      12,
+      15,
+      20
+    ],
+    "dc_input": {
+      "max_dc_input_voltage_v": 600,
+      "mppt_voltage_range_v": "80 V – 560 V",
+      "mppt_voltage_min_v": 80,
+      "mppt_voltage_max_v": 560,
+      "number_of_mppt": 4,
+      "max_short_circuit_current_per_mppt_a": 20
+    },
+    "ac_output": {
+      "nominal_voltage_v": "230 / 400 V 3-Phase + N",
+      "frequency_hz": "50 / 60",
+      "phases": 3,
+      "power_factor": "> 0.99",
+      "thd": "< 3%"
+    },
+    "battery_interface": {
+      "compatible_batteries": [
+        "GoodWe Lynx A G3",
+        "GoodWe Lynx U G3",
+        "GoodWe BAT Series",
+        "Third-party LV Lithium (CAN/RS485)"
+      ],
+      "battery_voltage_range_v": "40 V – 60 V",
+      "battery_type": "Low Voltage (LV) Lithium",
+      "bms_communication": "CAN / RS485"
+    },
+    "efficiency": {
+      "max_efficiency_pct": 97.6
+    },
+    "protection": {
+      "ingress_protection": "IP66",
+      "operating_temperature_c": "-25 to +60"
+    },
+    "safety_and_standards": [
+      "IEC 62109-1/2",
+      "IEC 61000-3-11",
+      "IEC 61000-3-12",
+      "EN 50549"
+    ]
+  }
+}
