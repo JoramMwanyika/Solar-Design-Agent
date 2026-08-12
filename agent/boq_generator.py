@@ -642,7 +642,7 @@ def generate_sizing_and_design_workbook(
         ["PV Module Power Rating", f"{sizing.get('panel_wp', 625)} Wp", "High-efficiency monocrystalline PV module"],
         ["Total Required DC Capacity", f"{sizing.get('total_pv_kwp', 0):.2f} kWp", "Sized against daily design target energy"],
         ["Total PV Modules Required", f"{sizing.get('panel_qty', 0)} pcs", f"Rule: ceil({sizing.get('total_pv_kwp', 0):.2f} kWp / {sizing.get('panel_wp', 625)/1000:.3f} kWp)"],
-        ["Max Inverter Input Voltage (Vin_max)", "1000 V DC", "Maximum allowable DC voltage per string"],
+        ["Max Inverter Input Voltage (Vin_max)", f"{string_info.get('max_inverter_vin', 1000.0):.0f} V DC", "Maximum allowable DC voltage per string"],
         ["Module Open Circuit Voltage (Voc)", "49.28 V DC", "Module specification at Standard Test Conditions"],
         ["Max Panels per String", f"{string_info.get('max_panels_per_string', 19)} pcs", "Formula: floor(Vin_max / (Voc * (1 + K*(Tmin - 25°C))))"],
         ["Panels per MPPT", f"{string_info.get('panels_per_mppt', 26)} panels", "Allocated based on max input power per MPPT"],

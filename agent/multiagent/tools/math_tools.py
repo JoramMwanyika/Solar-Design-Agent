@@ -87,10 +87,22 @@ def analyze_logger_data(intervals: List[Dict[str, Any]], interval_minutes: float
     if current_day:
         days_data.append((current_dow, current_day))
         
-    # Filter for weekdays only (Monday to Friday, day_of_week 0 to 4)
-    weekday_days = [day_intervals for dow, day_intervals in days_data if dow is not None and dow < 5]
+    # Filter for weekdays only (Monday to Friday, day_of_week 0 to 4) and check 24-hour completeness
+    expected_count_per_day = 86400.0 / max(1.0, delta_t_hours * 3600.0)
     
-    if not weekday_days:
+    valid_weekday_days = []
+    for dow, day_intervals in days_data:
+        if dow is not None and dow < 5:
+            if len(day_intervals) >= 0.90 * expected_count_per_day:
+                valid_weekday_days.append(day_intervals)
+                
+    if not valid_weekday_days:
+        valid_weekday_days = [day_intervals for dow, day_intervals in days_data if dow is not None and dow < 5]
+        
+    if not valid_weekday_days:
+        valid_weekday_days = [day_intervals for _, day_intervals in days_data]
+        
+    if not valid_weekday_days:
         return analyze_utility_bill(0, 30)
         
     # Find the day with the highest total power sum and energy
@@ -98,7 +110,7 @@ def analyze_logger_data(intervals: List[Dict[str, Any]], interval_minutes: float
     max_energy = 0.0
     best_day_intervals = []
     
-    for day_intervals in weekday_days:
+    for day_intervals in valid_weekday_days:
         power_sum = sum(i.get('apparent_power_kva', i.get('active_power_kw', 0) / 0.94) for i in day_intervals)
         energy = power_sum * delta_t_hours
         if power_sum > max_power_sum:
@@ -209,7 +221,7 @@ def calculate_stringing(panel_qty: int, panel_voc: float, panel_vmp: float, max_
     Calculates maximum panels per string, panels per MPPT, and total strings per user directives
     using exact inverter datasheet specifications and balanced layout distribution.
     """
-    from agent.system_sizer import load_inverter_specs, find_stringing_distribution, build_stringing_grid, select_inverter_model
+    from agent.system_sizer import load_inverter_specs, find_stringing_distribution, build_stringing_grid, select_inverter_model, get_max_pv_input_power_kw
     
     if not inverter_brand:
         system_type = "grid-tied" if inverter_kw_std >= 80 else "hybrid"
@@ -240,7 +252,7 @@ def calculate_stringing(panel_qty: int, panel_voc: float, panel_vmp: float, max_
     string_voltage_v = panels_per_string * panel_vmp
     
     single_panel_kw = panel_wp / 1000.0
-    max_pv_input_kw = inverter_kw_std * (1.3 if specs.get("max_vin", 500.0) <= 500.0 else 1.5)
+    max_pv_input_kw = specs.get("max_pv_input_power_kw") or get_max_pv_input_power_kw(inverter_brand, inverter_kw_std)
     max_kw_per_mppt = max_pv_input_kw / max(1, num_mppts)
     panels_per_mppt = max(1, math.floor(max_kw_per_mppt / single_panel_kw))
     
@@ -302,7 +314,7 @@ def size_inverter(system_type: str, peak_demand_kw: float, total_pv_kwp: float, 
         best_qty = math.ceil(inverter_kw / 150)
         for s in large_sizes:
             qty = math.ceil(inverter_kw / s)
-            if qty < best_qty or (qty == best_qty and s > best_size):
+            if qty < best_qty or (qty == best_qty and s < best_size):
                 best_size = s
                 best_qty = qty
     elif inverter_kw >= 20:
@@ -312,9 +324,9 @@ def size_inverter(system_type: str, peak_demand_kw: float, total_pv_kwp: float, 
         for s in med_sizes:
             qty = math.ceil(inverter_kw / s)
             if qty <= 3:
-                best_size = s
-                best_qty = qty
-                break
+                if qty < best_qty or (qty == best_qty and s < best_size):
+                    best_size = s
+                    best_qty = qty
     else:
         res_sizes = [3, 5, 8, 10, 12, 15]
         best_size = 15

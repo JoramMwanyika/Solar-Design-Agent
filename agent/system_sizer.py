@@ -394,76 +394,116 @@ def size_system_by_logged_data(
 ) -> SizingResult:
     """
     Sizing Agent specifically for time-series Logged data (SCADA/meter files).
+    Chronologically sorts entries, excludes weekends & incomplete (<24h) dates,
+    and performs direct calculations on valid full-day profiles.
     """
     import dateutil.parser
-    
-    # 1. Group by day
-    days_data = {}
-    for l in loads:
+    from datetime import datetime
+
+    def parse_load_dt(l: LoadItem):
         try:
-            dt = dateutil.parser.parse(l.name, fuzzy=True)
-            date_str = dt.date().isoformat()
-            dow = dt.weekday() # 0 is Monday, 6 is Sunday
+            return dateutil.parser.parse(l.name, fuzzy=True)
         except Exception:
-            date_str = "unknown"
-            dow = 0
-        
-        # Filter weekends by default to match multiagent logic
-        if dow < 5:
-            if date_str not in days_data:
-                days_data[date_str] = []
-            days_data[date_str].append(l)
-    
-    # Remove "unknown" if there are valid days
-    if len(days_data) > 1 and "unknown" in days_data:
-        del days_data["unknown"]
-        
-    # 2. Determine interval duration (seconds & minutes) from timestamp difference or row count
+            return None
+
+    # 1. Sort loads chronologically by timestamp
+    sorted_loads = sorted(loads, key=lambda l: (parse_load_dt(l) is None, parse_load_dt(l) or datetime.min))
+
+    # 2. Group items by day and classify by weekday (Mon-Fri vs Sat-Sun)
+    all_days_data = {}      # {date_str: [(dt, load_item), ...]}
+    weekday_days_data = {}  # {date_str: [(dt, load_item), ...]}
+
+    for l in sorted_loads:
+        dt = parse_load_dt(l)
+        if dt:
+            d_str = dt.date().isoformat()
+            dow = dt.weekday() # 0 is Monday, 6 is Sunday
+            if d_str not in all_days_data:
+                all_days_data[d_str] = []
+            all_days_data[d_str].append((dt, l))
+
+            if dow < 5: # Weekday only (Mon-Fri)
+                if d_str not in weekday_days_data:
+                    weekday_days_data[d_str] = []
+                weekday_days_data[d_str].append((dt, l))
+        else:
+            if "unknown" not in all_days_data:
+                all_days_data["unknown"] = []
+            all_days_data["unknown"].append((None, l))
+
+    # 3. Determine interval duration (seconds & hours)
     interval_seconds = 3600.0 # fallback: 1 hour
-    for d_str, d_loads in days_data.items():
-        if d_str != "unknown" and len(d_loads) >= 2:
-            try:
-                dt1 = dateutil.parser.parse(d_loads[0].name, fuzzy=True)
-                dt2 = dateutil.parser.parse(d_loads[1].name, fuzzy=True)
-                diff_sec = abs((dt2 - dt1).total_seconds())
-                if 1.0 <= diff_sec <= 7200.0:
-                    interval_seconds = diff_sec
-                    break
-            except Exception:
-                pass
+    sample_diffs = []
+    source_dict = weekday_days_data if weekday_days_data else all_days_data
+    for d_str, dt_loads in source_dict.items():
+        if d_str != "unknown" and len(dt_loads) >= 2:
+            for i in range(len(dt_loads) - 1):
+                diff = abs((dt_loads[i+1][0] - dt_loads[i][0]).total_seconds())
+                if 1.0 <= diff <= 7200.0:
+                    sample_diffs.append(diff)
 
-    if interval_seconds == 3600.0:
-        for d_str, d_loads in days_data.items():
-            if len(d_loads) > 5:
-                calc_sec = 86400.0 / len(d_loads)
-                if 1.0 <= calc_sec <= 7200.0:
-                    interval_seconds = calc_sec
-                    break
+    if sample_diffs:
+        sample_diffs.sort()
+        interval_seconds = sample_diffs[len(sample_diffs) // 2]
 
-    interval_minutes = interval_seconds / 60.0
-    delta_t_hours = interval_seconds / 3600.0 # (interval_minutes / 60.0)
+    delta_t_hours = interval_seconds / 3600.0
 
-    # 3. Sum data for each day, compare days, and select day with MAXIMUM total power sum
+    # 4. Check 24-Hour Completeness Criteria per Day
+    def is_full_24h_day(dt_loads, interval_sec):
+        if not dt_loads:
+            return False
+        valid_dts = [dt for dt, _ in dt_loads if dt is not None]
+        if not valid_dts:
+            return False
+        span_seconds = (max(valid_dts) - min(valid_dts)).total_seconds()
+        expected_count = 86400.0 / max(1.0, interval_sec)
+        # Must span at least 23.0 hours (82800 seconds) OR have at least 90% of expected 24h intervals
+        return (span_seconds >= 82800.0) or (len(dt_loads) >= 0.90 * expected_count)
+
+    # Filter candidate days prioritizing 24-hour weekdays
+    valid_candidate_days = {
+        d_str: dt_loads for d_str, dt_loads in weekday_days_data.items()
+        if is_full_24h_day(dt_loads, interval_seconds)
+    }
+
+    # Fallback 1: Any 24-hour day (including weekends) if no 24-hour weekday exists
+    if not valid_candidate_days:
+        valid_candidate_days = {
+            d_str: dt_loads for d_str, dt_loads in all_days_data.items()
+            if d_str != "unknown" and is_full_24h_day(dt_loads, interval_seconds)
+        }
+
+    # Fallback 2: Any weekday if no full 24-hour day exists
+    if not valid_candidate_days:
+        valid_candidate_days = weekday_days_data
+
+    # Fallback 3: All days
+    if not valid_candidate_days:
+        valid_candidate_days = all_days_data
+
+    # 5. Direct calculation on selected worst-case (highest energy/power) valid day
     max_power_sum = -1.0
     max_energy = -1.0
-    best_day_loads = []
-    for d_str, d_loads in days_data.items():
+    best_day_dt_loads = []
+
+    for d_str, dt_loads in valid_candidate_days.items():
+        loads_only = [l for _, l in dt_loads]
+        p_sum = sum(l.total_wattage for l in loads_only)
         if d_str == "unknown":
-            p_sum = sum(l.total_wattage for l in d_loads)
-            day_energy = (p_sum / len(d_loads)) * 24.0 if d_loads else 0.0
+            day_energy = (p_sum / len(loads_only)) * 24.0 if loads_only else 0.0
         else:
-            p_sum = sum(l.total_wattage for l in d_loads)
             day_energy = p_sum * delta_t_hours
-            
+
         if p_sum > max_power_sum:
             max_power_sum = p_sum
             max_energy = day_energy
-            best_day_loads = d_loads
-            
+            best_day_dt_loads = dt_loads
+
+    best_day_loads = [l for _, l in best_day_dt_loads] if best_day_dt_loads else loads
     if not best_day_loads:
         best_day_loads = loads
         max_energy = (sum(l.total_wattage for l in loads) / max(1, len(loads))) * 24.0
-        
+
     total_peak_w = max((l.total_wattage for l in best_day_loads), default=0.0)
     total_peak_va = max((l.total_va for l in best_day_loads), default=0.0)
     daily_energy_wh = max_energy
@@ -552,6 +592,73 @@ def size_system_by_bill_analysis(
     )
 
 
+def get_inverter_capacity_kw(inverter_brand: str) -> float:
+    """Extracts capacity rating in kW from an inverter model string."""
+    import re
+    brand_lower = inverter_brand.lower()
+    
+    m = re.search(r'sun2000-(\d+(?:\.\d+)?)k', brand_lower)
+    if m:
+        return float(m.group(1))
+        
+    m = re.search(r'sun-(\d+(?:\.\d+)?)k', brand_lower)
+    if m:
+        return float(m.group(1))
+        
+    m = re.search(r's6-eh3p(\d+(?:\.\d+)?)k', brand_lower)
+    if m:
+        return float(m.group(1))
+        
+    m = re.search(r'gw(\d+(?:\.\d+)?)k', brand_lower)
+    if m:
+        return float(m.group(1))
+        
+    matches = re.findall(r'(\d+(?:\.\d+)?)k', brand_lower)
+    if matches:
+        return float(matches[0])
+        
+    m = re.search(r'(\d+(?:\.\d+)?)\s*(?:kw|kva)', brand_lower)
+    if m:
+        return float(m.group(1))
+        
+    return 10.0
+
+
+def get_max_pv_input_power_kw(inverter_brand: str, capacity_kw: Optional[float] = None) -> float:
+    """
+    Returns the maximum PV input power (kW) from the selected inverter datasheet,
+    scaling according to manufacturer specifications.
+    """
+    if capacity_kw is None or capacity_kw <= 0:
+        capacity_kw = get_inverter_capacity_kw(inverter_brand)
+        
+    brand_lower = inverter_brand.lower()
+    
+    if "solis" in brand_lower:
+        if abs(capacity_kw - 30) < 0.1:
+            return 60.0
+        elif abs(capacity_kw - 40) < 0.1:
+            return 80.0
+        elif abs(capacity_kw - 50) < 0.1:
+            return 96.0
+        else:
+            return capacity_kw * 2.0
+    elif "goodwe" in brand_lower or "gw" in brand_lower:
+        return capacity_kw * 2.0
+    elif "huawei" in brand_lower:
+        return capacity_kw * 1.5
+    elif "sg05lp" in brand_lower or "lp1" in brand_lower or "lp3" in brand_lower:
+        return capacity_kw * 1.6
+    elif "em6" in brand_lower or "sg02hp3" in brand_lower:
+        return capacity_kw * 1.6
+    elif "am2" in brand_lower or "bm4" in brand_lower or "sg01hp3" in brand_lower:
+        return capacity_kw * 1.3
+    elif "sunsynk" in brand_lower:
+        return capacity_kw * 1.3
+    else:
+        return capacity_kw * 1.5
+
+
 def load_inverter_specs(inverter_brand: str) -> dict:
     """
     Loads specifications of the chosen inverter brand/model from the generated JSON datasheets.
@@ -603,6 +710,9 @@ def load_inverter_specs(inverter_brand: str) -> dict:
     if not json_file:
         json_file = "Deye_SUN-3-12K-SG05LP3-EU-SM2.json"
 
+    cap_kw = get_inverter_capacity_kw(inverter_brand)
+    max_pv_power_kw = get_max_pv_input_power_kw(inverter_brand, cap_kw)
+
     specs_path = inv_dir / json_file
     if not specs_path.exists():
         # Sensible defaults matching the system type voltage tier
@@ -613,6 +723,7 @@ def load_inverter_specs(inverter_brand: str) -> dict:
             "max_vin": 1000.0 if is_hv else 500.0,
             "mppt_min_v": 200.0 if is_hv else 40.0,
             "mppt_max_v": 850.0 if is_hv else 460.0,
+            "max_pv_input_power_kw": float(max_pv_power_kw),
         }
         
     try:
@@ -644,6 +755,7 @@ def load_inverter_specs(inverter_brand: str) -> dict:
             "max_vin": float(max_vin),
             "mppt_min_v": float(mppt_min),
             "mppt_max_v": float(mppt_max),
+            "max_pv_input_power_kw": float(max_pv_power_kw),
         }
     except Exception:
         return {
@@ -652,6 +764,7 @@ def load_inverter_specs(inverter_brand: str) -> dict:
             "max_vin": 500.0,
             "mppt_min_v": 40.0,
             "mppt_max_v": 460.0,
+            "max_pv_input_power_kw": float(max_pv_power_kw),
         }
 
 
@@ -814,7 +927,7 @@ def _execute_core_sizing_math(
         best_qty = math.ceil(inverter_kw / 150)
         for s in large_sizes:
             qty = math.ceil(inverter_kw / s)
-            if qty < best_qty or (qty == best_qty and s > best_size):
+            if qty < best_qty or (qty == best_qty and s < best_size):
                 best_size = s
                 best_qty = qty
     elif inverter_kw >= 20:
@@ -824,9 +937,9 @@ def _execute_core_sizing_math(
         for s in med_sizes:
             qty = math.ceil(inverter_kw / s)
             if qty <= 3:
-                best_size = s
-                best_qty = qty
-                break
+                if qty < best_qty or (qty == best_qty and s < best_size):
+                    best_size = s
+                    best_qty = qty
     else:
         res_sizes = [3, 5, 8, 10, 12, 15]
         best_size = 15
@@ -902,8 +1015,9 @@ def _execute_core_sizing_math(
     string_voltage_v = panels_per_string * panel_vmp
     
     # Panels per MPPT formula:
-    # (Max PV Input Power / Number of MPPTs) / Power of selected panel
-    max_pv_input_kw = inverter_kw_std * (1.3 if system_voltage_dc <= 48 else 1.5)
+    # 1. Maximum PV input power from selected inverter datasheet divided by number of MPPTs
+    # 2. Number of panels per MPPT = Maximum power per MPPT / single module power rating
+    max_pv_input_kw = specs.get("max_pv_input_power_kw") or get_max_pv_input_power_kw(inverter_brand, inverter_kw_std)
     max_power_per_mppt_kw = max_pv_input_kw / num_mppts
     panels_per_mppt = max(1, math.floor(max_power_per_mppt_kw / single_module_kw))
     
@@ -1137,7 +1251,7 @@ def format_sizing_summary(result: SizingResult) -> str:
             f"3. **Battery Storage (BESS) Rationale:** Total storage required is `{result.total_storage_kwh:.2f} kWh` based on `{result.days_of_autonomy} day(s)` autonomy at `{int(result.dod*100)}%` Depth of Discharge with a `1.25x` aging buffer. High-voltage LiFePO4 modules (`{result.battery_type}`) were selected for 6,000+ cycle durability and thermal safety.",
         ]
     lines += [
-        f"4. **Stringing & Voltage Safety Rationale:** String length is limited to `{result.stringing.max_panels_per_string} panels/string` so that max open-circuit voltage ($V_{{oc}}$ at cold temperature $10^\\circ\\text{{C}}$) remains safely below the `1000V DC` maximum inverter input rating.",
+        f"4. **Stringing & Voltage Safety Rationale:** String length is limited to `{result.stringing.max_panels_per_string} panels/string` so that max open-circuit voltage ($V_{{oc}}$ at cold temperature $10^\\circ\\text{{C}}$) remains safely below the `{result.stringing.max_inverter_vin:.0f}V DC` maximum inverter input rating.",
     ]
 
     lines += [

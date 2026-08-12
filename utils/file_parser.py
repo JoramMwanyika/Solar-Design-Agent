@@ -165,18 +165,55 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
     # Candidate columns classification
     col_energy = find_col("energy(kwh)", "energy (kwh)", "daily energy", "total energy", "kwh/day", "energy", "kwh")
     col_total_p = find_col("total power", "total_power", "total kw", "total_kw", "total w", "total p")
-    col_hrs = find_col("time", "time (hrs)", "time(hrs)", "hours_per_day", "hours", "hrs", "duration", "runtime", "operating hours", "h/day")
+    col_hrs = find_col("time (hrs)", "time(hrs)", "hours_per_day", "hours", "hrs", "duration", "runtime", "operating hours", "h/day")
     col_qty = find_col("quantity", "qty", "count", "num", "units", "pcs")
-    col_name = find_col("loads", "load", "name", "appliance", "item", "description", "device", "equipment")
+    col_name = find_col("loads", "load", "name", "appliance", "item", "description", "device", "equipment", "timestamp", "date & time", "date_time", "datetime")
     col_unit_p = find_col("power(kw)", "power (kw)", "power", "wattage", "active power", "active_power", "active", "kw", "watt", "watts", "w")
     col_s = find_col("apparent wattage", "apparent_wattage", "apparent power", "apparent_power", "apparent", "s (kva)", "s (va)", "kva", "va")
 
-    # Time-series log detection
+    if col_unit_p == col_s and col_s is not None:
+        col_unit_p = None
+    if col_total_p == col_s and col_s is not None:
+        col_total_p = None
+
+    col_date_only = find_col("date", "day")
+    col_time_only = find_col("time of day", "timestamp", "date & time", "datetime", "date_time", "time", "clock")
+
+    # Time-series log detection & Date/Time Combination
     is_time_series = False
     if col_name and any(kw in str(col_name).lower() for kw in ("timestamp", "interval", "date")):
         is_time_series = True
     elif len(df) >= 20 and not col_qty and not col_hrs and not col_energy:
         is_time_series = True
+
+    datetime_col_name = None
+    if col_date_only and col_time_only and col_date_only != col_time_only:
+        try:
+            combined_series = df[col_date_only].astype(str) + " " + df[col_time_only].astype(str)
+            parsed_dt = pd.to_datetime(combined_series, errors="coerce")
+            if parsed_dt.notna().sum() > 0:
+                df["__parsed_dt__"] = parsed_dt
+                datetime_col_name = "__parsed_dt__"
+                is_time_series = True
+        except Exception:
+            pass
+
+    if datetime_col_name is None:
+        for c in (col_name, col_time_only, col_date_only):
+            if c is not None:
+                try:
+                    parsed_dt = pd.to_datetime(df[c], errors="coerce")
+                    if parsed_dt.notna().sum() >= max(3, len(df) * 0.3):
+                        df["__parsed_dt__"] = parsed_dt
+                        datetime_col_name = "__parsed_dt__"
+                        is_time_series = True
+                        break
+                except Exception:
+                    pass
+
+    # Sort data chronologically if date/time column is detected
+    if datetime_col_name is not None and df[datetime_col_name].notna().sum() > 0:
+        df = df.sort_values(by=datetime_col_name, na_position="last").reset_index(drop=True)
 
     def get_val(r, c):
         if c is None:
@@ -206,6 +243,7 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
         energy_val = parse_number(get_val(row, col_energy)) if col_energy else None
 
         unit_p_w = 0.0
+        apparent_va = None
         # If explicit Total Power column is present
         if col_total_p is not None:
             raw_tot = parse_number(get_val(row, col_total_p))
@@ -215,8 +253,20 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
         elif col_unit_p is not None:
             raw_p = parse_number(get_val(row, col_unit_p))
             if raw_p is not None and raw_p > 0:
-                is_kw = "kw" in str(col_unit_p).lower() or (raw_p < 500.0 and "w" not in str(col_unit_p).lower())
+                col_label = str(col_unit_p).lower()
+                is_kw = "kw" in col_label or (is_time_series and raw_p < 500.0) or (raw_p < 500.0 and "w" not in col_label)
                 unit_p_w = raw_p * (1000.0 if is_kw else 1.0)
+
+        # Read apparent power (kVA/VA) if available
+        if col_s is not None:
+            raw_s = parse_number(get_val(row, col_s))
+            if raw_s is not None and raw_s > 0:
+                is_kva = "kva" in str(col_s).lower() or (is_time_series and raw_s < 500.0)
+                apparent_va = raw_s * (1000.0 if is_kva else 1.0)
+
+        # Fallback: if no active power column but apparent power exists, derive active power
+        if unit_p_w == 0.0 and apparent_va is not None and apparent_va > 0:
+            unit_p_w = apparent_va * 0.85  # assume PF = 0.85
 
         # Fallback to energy / hrs calculation if unit_p_w == 0
         if unit_p_w == 0.0 and energy_val is not None and energy_val > 0 and hrs_val is not None and hrs_val > 0:
@@ -231,7 +281,15 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
 
         if unit_p_w > 0 or (energy_val is not None and energy_val > 0):
             c_name_val = get_val(row, col_name)
-            item_name = str(c_name_val).strip() if (col_name and pd.notna(c_name_val) and str(c_name_val).strip()) else f"Load Item {idx+1}"
+            dt_val = get_val(row, "__parsed_dt__") if datetime_col_name else None
+            
+            if pd.notna(dt_val):
+                try:
+                    item_name = pd.to_datetime(dt_val).isoformat()
+                except Exception:
+                    item_name = str(c_name_val).strip() if (col_name and pd.notna(c_name_val) and str(c_name_val).strip()) else f"Load Item {idx+1}"
+            else:
+                item_name = str(c_name_val).strip() if (col_name and pd.notna(c_name_val) and str(c_name_val).strip()) else f"Load Item {idx+1}"
 
             explicit_wh = (energy_val * 1000.0) if (energy_val is not None and energy_val > 0) else None
 
@@ -240,7 +298,7 @@ def extract_loads_from_dataframe(df_raw) -> tuple[list[dict], bool]:
                 "wattage": unit_p_w,
                 "quantity": qty,
                 "hours_per_day": float(hrs_val),
-                "apparent_wattage": None,
+                "apparent_wattage": apparent_va,
                 "is_time_series": is_time_series,
                 "explicit_daily_energy_wh": explicit_wh
             })
