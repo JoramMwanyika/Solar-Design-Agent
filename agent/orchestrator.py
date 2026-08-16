@@ -414,6 +414,8 @@ class SolarAgent:
                 power_factor=float(l.get("power_factor", 0.85)) if l.get("power_factor") is not None and self.pd_notna_check(l.get("power_factor")) else 0.85,
                 is_time_series=bool(l.get("is_time_series", False)),
                 explicit_daily_energy_wh=float(l["explicit_daily_energy_wh"]) if l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) else None,
+                diversity_factor=float(l.get("diversity_factor", 1.0)) if l.get("diversity_factor") is not None and self.pd_notna_check(l.get("diversity_factor")) else 1.0,
+                utilisation_factor=float(l.get("utilisation_factor", 1.0)) if l.get("utilisation_factor") is not None and self.pd_notna_check(l.get("utilisation_factor")) else 1.0,
             )
             for l in loads
             if float(l.get("wattage", 0)) > 0 or (l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) and float(l["apparent_wattage"]) > 0) or (l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) and float(l["explicit_daily_energy_wh"]) > 0)
@@ -461,6 +463,8 @@ class SolarAgent:
                 power_factor=float(l.get("power_factor", 0.85)) if l.get("power_factor") is not None and self.pd_notna_check(l.get("power_factor")) else 0.85,
                 is_time_series=False,
                 explicit_daily_energy_wh=float(l["explicit_daily_energy_wh"]) if l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) else None,
+                diversity_factor=float(l.get("diversity_factor", 1.0)) if l.get("diversity_factor") is not None and self.pd_notna_check(l.get("diversity_factor")) else 1.0,
+                utilisation_factor=float(l.get("utilisation_factor", 1.0)) if l.get("utilisation_factor") is not None and self.pd_notna_check(l.get("utilisation_factor")) else 1.0,
             )
             for l in loads
             if float(l.get("wattage", 0)) > 0 or (l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) and float(l["apparent_wattage"]) > 0) or (l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) and float(l["explicit_daily_energy_wh"]) > 0)
@@ -508,6 +512,8 @@ class SolarAgent:
                 power_factor=float(l.get("power_factor", 0.85)) if l.get("power_factor") is not None and self.pd_notna_check(l.get("power_factor")) else 0.85,
                 is_time_series=True,
                 explicit_daily_energy_wh=float(l["explicit_daily_energy_wh"]) if l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) else None,
+                diversity_factor=float(l.get("diversity_factor", 1.0)) if l.get("diversity_factor") is not None and self.pd_notna_check(l.get("diversity_factor")) else 1.0,
+                utilisation_factor=float(l.get("utilisation_factor", 1.0)) if l.get("utilisation_factor") is not None and self.pd_notna_check(l.get("utilisation_factor")) else 1.0,
             )
             for l in loads
             if float(l.get("wattage", 0)) > 0 or (l.get("apparent_wattage") is not None and self.pd_notna_check(l.get("apparent_wattage")) and float(l["apparent_wattage"]) > 0) or (l.get("explicit_daily_energy_wh") is not None and self.pd_notna_check(l.get("explicit_daily_energy_wh")) and float(l["explicit_daily_energy_wh"]) > 0)

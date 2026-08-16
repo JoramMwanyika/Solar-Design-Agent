@@ -93,12 +93,14 @@ class LoadItem:
     power_factor: float = 0.85
     is_time_series: bool = False
     explicit_daily_energy_wh: Optional[float] = None
+    diversity_factor: float = 1.0
+    utilisation_factor: float = 1.0
 
     @property
     def daily_energy_wh(self) -> float:
         if self.explicit_daily_energy_wh is not None and self.explicit_daily_energy_wh > 0:
             return self.explicit_daily_energy_wh
-        return self.wattage * self.quantity * self.hours_per_day
+        return self.wattage * self.quantity * self.hours_per_day * self.diversity_factor * self.utilisation_factor
 
     @property
     def total_wattage(self) -> float:
@@ -343,18 +345,31 @@ def size_system_by_load_profile(
     ac_cable_distance_m: float = 100.0,
 ) -> SizingResult:
     """
-    Sizing Agent specifically for Load Profile data (Appliance list).
+    Sizing engine for Load Profile / Appliance list input.
+
+    Workflow (per user directive):
+      Step 1 — Calculate daily energy from loads and hours of operation:
+                daily_energy_wh = sum(wattage * quantity * hours_per_day) for each load
+      Step 2 — Proceed with ALL sizing from that energy:
+                - PV array  : Required kWp = daily_energy_wh / 1000 / PSH
+                - Battery   : Required kWh = (daily_energy_wh / 1000 * days_autonomy) / DoD * 1.25
+                - Inverter  : Sized from Required PV Capacity (NOT from raw connected load sum)
+                              peak_demand is passed as 0 so inverter_kw = total_pv_kwp
     """
-    # Standard Appliance Schedule: Peak is SUM of all connected items, Daily Energy is SUM(item * hours)
-    total_peak_w = sum(l.total_wattage for l in loads)
-    total_peak_va = sum(l.total_va for l in loads)
+    # ── Step 1: Energy from appliance schedule ────────────────────────────────
+    # Each load contributes: energy_wh = wattage * quantity * hours_per_day
     daily_energy_wh = sum(l.daily_energy_wh for l in loads)
 
+    # ── Step 2: All sizing driven by energy ───────────────────────────────────
+    # Pass total_peak_w = 0 and total_peak_va = 0 so that inside
+    # _execute_core_sizing_math the inverter selection becomes:
+    #   inverter_kw = max(total_pv_kwp, 0) = total_pv_kwp
+    # i.e. the inverter is sized purely from the energy-derived PV capacity.
     return _execute_core_sizing_math(
         system_type=system_type,
         daily_energy_wh=daily_energy_wh,
-        total_peak_w=total_peak_w,
-        total_peak_va=total_peak_va,
+        total_peak_w=0.0,    # Inverter sized from Required PV Capacity (energy-driven)
+        total_peak_va=0.0,   # Inverter sized from Required PV Capacity (energy-driven)
         location=location,
         days_of_autonomy=days_of_autonomy,
         dod=dod,
@@ -488,15 +503,17 @@ def size_system_by_logged_data(
 
     for d_str, dt_loads in valid_candidate_days.items():
         loads_only = [l for _, l in dt_loads]
-        p_sum = sum(l.total_wattage for l in loads_only)
+        # Use Apparent Power (VA) if logged, fallback to Active Power (W)
+        p_sum = sum((l.total_va if l.apparent_wattage is not None else l.total_wattage) for l in loads_only)
         if d_str == "unknown":
             day_energy = (p_sum / len(loads_only)) * 24.0 if loads_only else 0.0
         else:
             day_energy = p_sum * delta_t_hours
 
-        if p_sum > max_power_sum:
-            max_power_sum = p_sum
+        # Select the day with the highest average daily energy
+        if day_energy > max_energy:
             max_energy = day_energy
+            max_power_sum = p_sum
             best_day_dt_loads = dt_loads
 
     best_day_loads = [l for _, l in best_day_dt_loads] if best_day_dt_loads else loads
@@ -878,6 +895,8 @@ def _execute_core_sizing_math(
     temp_coeff_k: float,
     dc_cable_distance_m: float,
     ac_cable_distance_m: float,
+    diversity_factor: float = 1.0,
+    dc_ac_ratio: float = 1.25,
 ) -> SizingResult:
     """
     Unified core calculation engine executing precise workbook equations.
@@ -910,36 +929,43 @@ def _execute_core_sizing_math(
     total_pv_kwp = (panel_qty * panel_wp) / 1000.0
     
     # 3. Inverter Brand, Rating & Architecture Selection
-    # When sizing for Hybrid/Off-Grid: use Apparent Power S (VA -> kVA)
-    # When sizing for Grid-Tied: use Active Power P (W -> kW)
-    if system_type in ("off-grid", "hybrid"):
-        peak_demand_kunit = (total_peak_va * 1.25) / 1000.0 # Apparent Power S + 25% safety margin
-    else:
-        peak_demand_kunit = (total_peak_w * 1.25) / 1000.0  # Active Power P + 25% safety margin
+    # AC Capacity = DC Capacity / 1.25  (always fixed DC:AC ratio of 1.25)
+    # This is the TOTAL PROPOSED AC CAPACITY and the sole basis for inverter selection.
+    ac_capacity_kw = total_pv_kwp / 1.25 if total_pv_kwp > 0 else 0.0
 
-    inverter_kw = max(total_pv_kwp, peak_demand_kunit)
+    # inverter_kw is ALWAYS the AC capacity — never overridden by raw peak demand.
+    inverter_kw = ac_capacity_kw
     
-    # Realistic Inverter Selection:
-    # Prioritizes large commercial/industrial inverters (80kW, 100kW, 150kW) for large systems (>50 kW)
+    # Realistic Inverter Selection — sized from AC Capacity:
+    # For each candidate unit size, compute the minimum quantity whose total >= ac_capacity_kw.
+    # Select the combination that gives the lowest total overcapacity while using the
+    # smallest quantity of units (prefer fewer, larger units for commercial systems).
     if inverter_kw > 50:
-        large_sizes = [150, 100, 80]
-        best_size = 150
-        best_qty = math.ceil(inverter_kw / 150)
+        # Commercial / industrial: try 80, 100, 150 kW units
+        large_sizes = [80, 100, 150]
+        best_size = large_sizes[0]
+        best_qty = math.ceil(inverter_kw / best_size)
+        best_total = best_size * best_qty
         for s in large_sizes:
             qty = math.ceil(inverter_kw / s)
-            if qty < best_qty or (qty == best_qty and s < best_size):
+            total = s * qty
+            # Prefer option with lower total overcapacity; on tie, prefer fewer units
+            if total < best_total or (total == best_total and qty < best_qty):
                 best_size = s
                 best_qty = qty
+                best_total = total
     elif inverter_kw >= 20:
-        med_sizes = [50, 30, 20, 15]
-        best_size = 50
-        best_qty = math.ceil(inverter_kw / 50)
+        med_sizes = [15, 20, 30, 50]
+        best_size = med_sizes[-1]
+        best_qty = math.ceil(inverter_kw / best_size)
+        best_total = best_size * best_qty
         for s in med_sizes:
             qty = math.ceil(inverter_kw / s)
-            if qty <= 3:
-                if qty < best_qty or (qty == best_qty and s < best_size):
-                    best_size = s
-                    best_qty = qty
+            total = s * qty
+            if total < best_total or (total == best_total and qty < best_qty):
+                best_size = s
+                best_qty = qty
+                best_total = total
     else:
         res_sizes = [3, 5, 8, 10, 12, 15]
         best_size = 15

@@ -118,7 +118,16 @@ load_analysis_agent = MultiAgent(
 appliance_analysis_agent = MultiAgent(
     name="Appliance Analysis Agent",
     role="Appliance load profile calculator.",
-    goal="Calculate daily energy and peak demand from a manual list of appliances to generate the Unified Energy Output schema.",
+    goal=(
+        "Calculate daily energy and peak demand from a manual list of appliances "
+        "to generate the Unified Energy Output schema. "
+        "CRITICAL LOAD PROFILE WORKFLOW:\n"
+        "  Step 1 — Pass the list to analyze_appliance_list. It will do all the math.\n"
+        "  Step 2 — Output the exact `appliance_breakdown` returned by the tool to the user. DO NOT recalculate energy values yourself to prevent math errors!\n"
+        "  Step 3 — Return peak_demand_kw=0.0 in the Unified Energy Output. "
+        "This signals that the inverter must be sized from the Required PV Capacity "
+        "(which is derived from daily energy), NOT from the raw connected load sum."
+    ),
     tools=[mt.analyze_appliance_list]
 )
 
@@ -150,7 +159,13 @@ battery_design_agent = MultiAgent(
 inverter_selection_agent = MultiAgent(
     name="Inverter Selection Agent",
     role="Inverter configuration specialist.",
-    goal="Choose compatible inverters: Huawei for Grid-Tied systems, Deye or Solis for Hybrid/Off-Grid systems. Check Low Voltage (48V) vs High Voltage (HV 384V+) for hybrid systems.",
+    goal=(
+        "Choose compatible inverters: Huawei for Grid-Tied systems, Deye or Solis for Hybrid/Off-Grid systems. "
+        "Check Low Voltage (48V) vs High Voltage (HV 384V+) for hybrid systems. "
+        "LOAD PROFILE RULE: When sizing from a load profile / appliance list, call size_inverter with "
+        "peak_demand_kw=0.0 so the inverter is sized from the Required PV Capacity (energy-driven). "
+        "For Bill Analysis and Logged Data, use the actual peak_demand_kw from the state."
+    ),
     tools=[mt.size_inverter]
 )
 

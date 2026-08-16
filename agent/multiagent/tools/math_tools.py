@@ -113,9 +113,9 @@ def analyze_logger_data(intervals: List[Dict[str, Any]], interval_minutes: float
     for day_intervals in valid_weekday_days:
         power_sum = sum(i.get('apparent_power_kva', i.get('active_power_kw', 0) / 0.94) for i in day_intervals)
         energy = power_sum * delta_t_hours
-        if power_sum > max_power_sum:
-            max_power_sum = power_sum
+        if energy > max_energy:
             max_energy = energy
+            max_power_sum = power_sum
             best_day_intervals = day_intervals
             
     if not best_day_intervals:
@@ -145,54 +145,97 @@ def analyze_logger_data(intervals: List[Dict[str, Any]], interval_minutes: float
         "design_confidence": 0.99 # Logger data is highly confident
     }
 
-def analyze_appliance_list(appliances: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_appliance_list(appliances: List[Dict[str, Any]], diversity_factor: float = 1.0) -> Dict[str, Any]:
     """
-    Scenario 3: Analyze a manual list of appliances.
-    appliances: List of dicts with 'rated_power_w', 'qty', 'hours_per_day', 'simultaneous', 'priority' (Critical/Essential/Non-critical)
+    Scenario 3: Analyze a manual list of appliances (Load Profile).
+    appliances: List of dicts with:
+      - 'rated_power_w' (MUST be PER-UNIT wattage in Watts, e.g. 100 for 100W)
+      - 'qty'
+      - 'hours_per_day'
+      - 'daily_energy_kwh' or 'daily_energy_wh' (optional: energy for this load item. kWh values like 2.5 will be automatically converted to Wh)
+      - 'priority' (Critical/Essential/Non-critical)
+    diversity_factor: Optional scaling factor for maximum demand (e.g. 1.1 or 1.25).
+
+    Load Profile Workflow (CRITICAL):
+      Step 1 — Compute daily energy for EACH appliance:
+                energy_wh = rated_power_w * qty * hours_per_day
+      Step 2 — Sum all energy_wh values -> total daily_energy_kwh
+      Step 3 — Return peak_demand_kw=0.0 so the Inverter Selection Agent sizes
+                the inverter from Required PV Capacity (energy-driven), NOT from
+                the raw sum of all connected wattages.
     """
     total_energy_wh = 0.0
     connected_load_w = 0.0
-    simultaneous_demand_w = 0.0
     critical_load_w = 0.0
     critical_energy_wh = 0.0
     
+    breakdown = []
+
     for app in appliances:
-        p_w = app.get('rated_power_w', 0)
-        qty = app.get('qty', 1)
-        hpd = app.get('hours_per_day', 1.0)
+        name = app.get('name', app.get('appliance', 'Unknown Appliance'))
+        p_w = float(app.get('rated_power_w', app.get('wattage', 0)))
+        qty = int(app.get('qty', app.get('quantity', 1)))
+        hpd = float(app.get('hours_per_day', app.get('hours', 1.0)))
+        div_f = float(app.get('diversity_factor', app.get('diversity', 1.0)))
+        util_f = float(app.get('utilisation_factor', app.get('utilisation', 1.0)))
+
+        # Check for explicit energy input in kWh or Wh
+        explicit_kwh = app.get('daily_energy_kwh', app.get('energy_kwh', None))
+        explicit_wh = app.get('daily_energy_wh', app.get('energy_wh', None))
+
+        load_w = p_w * qty * div_f * util_f
         
-        load_w = p_w * qty
-        energy_wh = load_w * hpd
-        
+        if explicit_kwh is not None and float(explicit_kwh) > 0:
+            energy_wh = float(explicit_kwh) * 1000.0
+        elif explicit_wh is not None and float(explicit_wh) > 0:
+            energy_wh = float(explicit_wh)
+        else:
+            # Step 1: energy per appliance = rating * qty * hours_per_day * diversity_factor * utilisation_factor
+            energy_wh = load_w * hpd
+
         total_energy_wh += energy_wh
         connected_load_w += load_w
-        
-        if app.get('simultaneous', True):
-            simultaneous_demand_w += load_w
-            
+
         if app.get('priority', '').lower() in ['critical', 'essential']:
             critical_load_w += load_w
             critical_energy_wh += energy_wh
+            
+        breakdown.append({
+            "appliance": name,
+            "unit_wattage_w": p_w,
+            "unit_kw": round(p_w / 1000.0, 3),
+            "quantity": qty,
+            "total_wattage_w": load_w,
+            "total_kw": round(load_w / 1000.0, 3),
+            "hours_per_day": hpd,
+            "daily_energy_wh": energy_wh,
+            "daily_energy_kwh": round(energy_wh / 1000.0, 3)
+        })
 
-    peak_demand_kw = simultaneous_demand_w / 1000.0
-    connected_load_kw = connected_load_w / 1000.0
+    # Step 2: total daily energy (kWh)
     daily_energy_kwh = total_energy_wh / 1000.0
-    
-    demand_factor = peak_demand_kw / connected_load_kw if connected_load_kw > 0 else 1.0
-    lf = daily_energy_kwh / (24 * peak_demand_kw) if peak_demand_kw > 0 else 1.0
-    
+    connected_load_kw = connected_load_w / 1000.0
+
+    div_factor = float(diversity_factor) if (diversity_factor and float(diversity_factor) > 0) else 1.0
+    max_demand_kw = round(connected_load_kw / div_factor, 2)
+
+    lf = daily_energy_kwh / (24 * connected_load_kw) if connected_load_kw > 0 else 1.0
+
     return {
         "daily_energy_kwh": round(daily_energy_kwh, 2),
-        "peak_demand_kw": round(peak_demand_kw, 2),
+        # Step 3: peak_demand_kw=0.0 — inverter must be sized from Required PV Capacity
+        "peak_demand_kw": 0.0,
         "connected_load_kw": round(connected_load_kw, 2),
+        "max_demand_kw": max_demand_kw,
         "critical_load_kw": round(critical_load_w / 1000.0, 2),
         "critical_energy_kwh": round(critical_energy_wh / 1000.0, 2),
-        "night_energy_kwh": round(daily_energy_kwh * 0.4, 2), # Estimate if schedules not strictly mapped
+        "night_energy_kwh": round(daily_energy_kwh * 0.4, 2),
         "load_factor": round(lf, 2),
-        "demand_factor": round(demand_factor, 2),
-        "diversity_factor": 1.22,
+        "demand_factor": 1.0,
+        "diversity_factor": div_factor,
         "power_factor": 0.94,
-        "design_confidence": 0.97
+        "design_confidence": 0.97,
+        "appliance_breakdown": breakdown
     }
 
 def size_pv_array(daily_energy_kwh: float, psh: float, peak_demand_kw: float, panel_wp: float, pr: float = 1.0) -> Dict[str, Any]:

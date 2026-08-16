@@ -268,11 +268,25 @@ div[data-testid="column"] .stButton > button:hover {
     border: 1px solid #2d4a8a;
 }
 
+/* Modern chat bubbles */
+[data-testid="stChatMessage"] .stMarkdown {
+    background: transparent !important;
+    padding: 0 !important;
+}
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) .stMarkdown > div {
+    background: linear-gradient(180deg,#0f172a,#122031); color:#e6f9ff; border-radius:12px; padding:12px 14px; border:1px solid rgba(58,138,255,0.12);
+}
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) .stMarkdown > div {
+    background: linear-gradient(180deg,#0b1220,#0d1624); color:#cfe8ff; border-radius:12px; padding:12px 14px; border:1px solid rgba(255,255,255,0.03);
+    margin-left: 20px !important;
+}
+
 /* Chat input area */
 [data-testid="stChatInput"] {
-    background: #1a2234 !important;
-    border: 1px solid #252f40 !important;
-    border-radius: 10px !important;
+    background: #0e1722 !important;
+    border: 1px solid #172432 !important;
+    border-radius: 14px !important;
+    padding: 6px !important;
 }
 [data-testid="stChatInput"] textarea {
     background: transparent !important;
@@ -281,24 +295,63 @@ div[data-testid="column"] .stButton > button:hover {
 
 /* === FILE UPLOADER === */
 [data-testid="stFileUploader"] {
-    background: #1a2234;
-    border: 2px dashed #252f40;
+    background: #0e1722;
+    border: 2px dashed #172432;
     border-radius: 10px;
 }
 
-hr { border-color: #1e2a3a !important; }
+hr { border-color: #0f1b2a !important; }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #0d1117; }
-::-webkit-scrollbar-thumb { background: #2d3f55; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #4ade80; }
+::-webkit-scrollbar-thumb { background: #25425a; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
 
-.stExpander { background: #1a2234; border-color: #252f40 !important; border-radius: 10px; }
+.stExpander { background: #0f1722; border-color: #172432 !important; border-radius: 12px; }
 .stSuccess { background: #052e16 !important; border-color: #4ade80 !important; color: #bbf7d0 !important; }
 .stError { background: #450a0a !important; border-color: #ef4444 !important; }
 .stWarning { background: #422006 !important; border-color: #f59e0b !important; }
 .stInfo { background: #0c1a3a !important; border-color: #3b82f6 !important; }
+
+/* Right panel metric cards */
+.metric-grid { display:grid; grid-template-columns: repeat(1, minmax(0,1fr)); gap:8px; }
+.metric-card { background: linear-gradient(180deg,#071428,#0b1624); border:1px solid #13202b; padding:12px; border-radius:10px; display:flex; align-items:center; gap:12px }
+.metric-icon { width:44px; height:44px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:#071a2a; color:#38bdf8; font-size:1.1rem }
+.metric-body { flex:1 }
+.metric-label { color:#94a3b8; font-size:0.85rem }
+.metric-value { color:#e6f9ff; font-weight:700; font-size:1rem }
+
 </style>
+""", unsafe_allow_html=True)
+
+# Top navigation bar (visual only) — appears above the page content
+st.markdown("""
+<style>
+ .top-nav {
+         display:flex; align-items:center; justify-content:space-between;
+         gap:12px;padding:10px 18px;border-bottom:1px solid #0f172a;background:linear-gradient(90deg,#071428,#0d1117);
+         position:sticky;top:0;z-index:99998;
+ }
+ .top-nav .brand { display:flex; align-items:center; gap:12px }
+ .brand .logo { width:42px; height:42px; border-radius:9px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#0ea5e9,#06b6d4); color:#021124; font-weight:700 }
+ .top-nav .actions { display:flex; gap:8px; align-items:center }
+ .nav-pill { background:transparent; border:1px solid #1f2a38; color:#cbd5e1; padding:8px 12px; border-radius:8px; font-weight:600 }
+ .nav-pill:hover { background:#0b1220; color:#e6f9ff }
+</style>
+<div class="top-nav">
+    <div class="brand">
+        <div class="logo">☀️</div>
+        <div style="line-height:1">
+            <div style="font-weight:700;color:#e6f9ff">Solar Design Agent</div>
+            <div style="font-size:0.82rem;color:#94a3b8">AI-assisted PV sizing & BOQ</div>
+        </div>
+    </div>
+    <div class="actions">
+        <div class="nav-pill">New Project</div>
+        <div class="nav-pill">Upload</div>
+        <div class="nav-pill">Reports</div>
+    </div>
+</div>
 """, unsafe_allow_html=True)
 
 
@@ -846,17 +899,18 @@ with col_right:
     load = f"{res.daily_energy_wh/1000:.1f} kWh/day" if res else "---"
     psh = f"{res.peak_sun_hours} h/day" if res else "---"
     savings = "KES --- / year"
-    
     st.markdown(f"""
-    <div class="live-metric-row"><span class="live-metric-label">📍 Location</span><span class="live-metric-val">{loc}</span></div>
-    <div class="live-metric-row"><span class="live-metric-label">📐 Roof Area</span><span class="live-metric-val">{roof}</span></div>
-    <div class="live-metric-row"><span class="live-metric-label">🔲 Panel Count</span><span class="live-metric-val">{panels}</span></div>
-    <div class="live-metric-row"><span class="live-metric-label">⚡ Inverter</span><span class="live-metric-val">{inv}</span></div>
-    <div class="live-metric-row"><span class="live-metric-label">🔋 Battery</span><span class="live-metric-val">{batt}</span></div>
-    <div class="live-metric-row"><span class="live-metric-label">🔌 Daily Load</span><span class="live-metric-val">{load}</span></div>
-    <div class="live-metric-row"><span class="live-metric-label">☀️ Peak Sun Hours</span><span class="live-metric-val">{psh}</span></div>
-    <div class="live-metric-row"><span class="live-metric-label" style="color:#10B981;">💲 Estimated Savings</span><span class="live-metric-val" style="color:#10B981;">{savings}</span></div>
-    """, unsafe_allow_html=True)
+        <div class="metric-grid">
+            <div class="metric-card"><div class="metric-icon">📍</div><div class="metric-body"><div class="metric-label">Location</div><div class="metric-value">{loc}</div></div></div>
+            <div class="metric-card"><div class="metric-icon">📐</div><div class="metric-body"><div class="metric-label">Roof Area</div><div class="metric-value">{roof}</div></div></div>
+            <div class="metric-card"><div class="metric-icon">🔲</div><div class="metric-body"><div class="metric-label">Panel Count</div><div class="metric-value">{panels}</div></div></div>
+            <div class="metric-card"><div class="metric-icon">⚡</div><div class="metric-body"><div class="metric-label">Inverter</div><div class="metric-value">{inv}</div></div></div>
+            <div class="metric-card"><div class="metric-icon">🔋</div><div class="metric-body"><div class="metric-label">Battery</div><div class="metric-value">{batt}</div></div></div>
+            <div class="metric-card"><div class="metric-icon">🔌</div><div class="metric-body"><div class="metric-label">Daily Load</div><div class="metric-value">{load}</div></div></div>
+            <div class="metric-card"><div class="metric-icon">☀️</div><div class="metric-body"><div class="metric-label">Peak Sun Hours</div><div class="metric-value">{psh}</div></div></div>
+            <div class="metric-card"><div class="metric-icon" style="background:#072012;color:#10B981">💲</div><div class="metric-body"><div class="metric-label">Estimated Savings</div><div class="metric-value" style="color:#10B981">{savings}</div></div></div>
+        </div>
+        """, unsafe_allow_html=True)
     
 
     
