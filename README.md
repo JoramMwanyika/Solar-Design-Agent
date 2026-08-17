@@ -1,6 +1,6 @@
 # Solar Design AI Agent — Enterprise PV System Sizing & BOQ Suite
 
-An enterprise-grade, AI-powered solar PV design, system sizing, and Bill of Quantities (BOQ) generation suite. The platform features a **Dual-Brain / Triple-Engine AI Architecture** (using **Google Gemini**, **GitHub Models `gpt-4o`**, and **Featherless AI / DeepSeek-V3.1-Terminus**), an autonomous **Multi-Agent Orchestration Engine**, a deterministic engineering sizing math module applying international standards (IEC 62548, IEC 60364, AS/NZS 4509), and a database persistence layer backed by **Supabase**.
+An enterprise-grade, AI-powered solar PV design, system sizing, and Bill of Quantities (BOQ) generation suite. The platform features a **Dual-Brain / Triple-Engine AI Architecture** (using **Google Gemini**, **GitHub Models `your-github-model-name-here`**, and **Featherless AI / DeepSeek-V3.1-Terminus**), an autonomous **Multi-Agent Orchestration Engine**, a deterministic engineering sizing math module applying international standards (IEC 62548, IEC 60364, AS/NZS 4509), and a database persistence layer backed by **Supabase**.
 
 ---
 
@@ -225,7 +225,7 @@ SUPABASE_ACCESS_TOKEN=sbp_your_token_here
 
 # Optional: GitHub Models Brain Config
 GITHUB_TOKEN=your_github_token_here
-GITHUB_MODEL=gpt-4o
+GITHUB_MODEL=your-github-model-name-here
 
 # Optional: Featherless AI Config
 FEATHERLESS_API_KEY=your_featherless_api_key_here
