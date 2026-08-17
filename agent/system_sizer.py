@@ -161,6 +161,7 @@ class SizingResult:
     panel_wp: int
     panel_qty: int
     total_pv_kwp: float
+    ac_capacity_kw: float = 0.0
     
     # Optional / defaulted fields
     total_peak_va: float = 0.0
@@ -227,6 +228,7 @@ class SizingResult:
                 "qty": self.inverter_qty,
                 "brand": self.inverter_brand,
                 "voltage_architecture": self.voltage_architecture,
+                "ac_capacity_kw": round(self.ac_capacity_kw, 2),
             },
             "cables": {
                 "dc_sqmm": self.cable_sizing.dc_recommended_cable_sqmm if self.cable_sizing else 4,
@@ -1159,6 +1161,7 @@ def _execute_core_sizing_math(
         mppt_qty=num_mppts * inverter_qty,
         system_voltage_dc=system_voltage_dc,
         cable_sizing=cable_sizing,
+        ac_capacity_kw=ac_capacity_kw,
     )
 
 
@@ -1188,9 +1191,10 @@ def format_sizing_summary(result: SizingResult) -> str:
         f"| **Proposed DC Capacity** | `{result.total_pv_kwp:.2f} kWp` | Based on target daily energy & peak sun hours |",
         f"| **Selected Module Rating** | `{result.panel_wp} Wp` (`{result.panel_wp/1000:.3f} kWp`) | High-efficiency monocrystalline PV module |",
         f"| **Total PV Modules Required** | `{result.panel_qty} pcs` | Rule: `ceil({result.total_pv_kwp:.2f} / {result.panel_wp/1000:.3f})` |",
+        f"| **Proposed AC Capacity** | `{result.ac_capacity_kw:.2f} kW` | Sized as DC Capacity ÷ 1.25 |",
         f"| **Selected Inverter Model** | `{result.inverter_brand}` | Grid-Tied → Huawei SUN2000 / Hybrid → Deye Hybrid |",
         f"| **Voltage Architecture** | `{result.voltage_architecture}` | LV: 48V BESS / 500V DC / HV: 384V+ BESS / 1000V DC |",
-        f"| **Proposed Inverter Size** | `{result.inverter_kw:.1f} kW` (`{result.inverter_kva:.1f} kVA`) | Sized with `1.25x` safety factor |",
+        f"| **Proposed Inverter Size** | `{result.inverter_kw:.1f} kW` (`{result.inverter_kva:.1f} kVA`) | Sized to fit Proposed AC Capacity |",
         f"| **No. of Inverters** | `{result.inverter_qty} pcs` | Total AC Capacity: `{result.inverter_kw * result.inverter_qty:.1f} kW` |",
         "",
         "### 🔗 2. Stringing & MPPT Configuration",

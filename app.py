@@ -33,7 +33,7 @@ from db.queries import (
 from utils.helpers import system_type_badge
 
 # ── Page config ──────────────────────────────
-st.set_page_config(page_title="Solar Design Agent", page_icon="☀️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="JMSolar.AI", page_icon="static/jmsolar_logo.png", layout="wide", initial_sidebar_state="expanded")
 
 # ── Auth guard ───────────────────────────────
 if not require_login():
@@ -57,25 +57,41 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
+/*
+  JMSolar.AI Brand Palette (extracted from logo)
+  --jm-bg-deep:    #060d08  deep solar-night background
+  --jm-bg-panel:   #0a1410  main panel surface
+  --jm-bg-card:    #0f1e15  card surface
+  --jm-green:      #22c55e  solar green (circle, M, swipe)
+  --jm-green-dark: #15803d  dark green
+  --jm-blue:       #3b82f6  panel blue (solar panels, .AI)
+  --jm-blue-lt:    #60a5fa  light blue
+  --jm-gold:       #f59e0b  sun-gold (rays)
+  --jm-gold-lt:    #fbbf24  light gold
+  --jm-white:      #f1f5f9  near-white text
+  --jm-muted:      #6b9e7e  muted green-grey
+  --jm-border:     #1a3025  subtle green-tinted border
+*/
+
 /* === BASE === */
 .stApp {
-    background-color: #0d1117 !important;
-    color: #94a3b8;
-    padding-bottom: 70px !important; /* Prevents viewport clipping by fixed taskbar */
+    background-color: #060d08 !important;
+    color: #6b9e7e;
+    padding-bottom: 70px !important;
 }
-.stApp > div { background-color: #0d1117 !important; }
+.stApp > div { background-color: #060d08 !important; }
 
 /* Sidebar */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #111827 0%, #0d1b2a 60%, #0a1628 100%) !important;
-    border-right: 1px solid #1e2a3a !important;
+    background: linear-gradient(180deg, #0a1410 0%, #071008 60%, #050c07 100%) !important;
+    border-right: 1px solid #1a3025 !important;
 }
 [data-testid="stSidebar"] > div { background: transparent !important; }
-[data-testid="stSidebar"] * { color: #cbd5e1 !important; }
+[data-testid="stSidebar"] * { color: #a7c4b0 !important; }
 
 /* Header bar */
-[data-testid="stHeader"] { background-color: #0d1117 !important; border-bottom: 1px solid #1e2a3a; }
-[data-testid="stToolbar"] { background-color: #0d1117 !important; }
+[data-testid="stHeader"] { background-color: #060d08 !important; border-bottom: 1px solid #1a3025; }
+[data-testid="stToolbar"] { background-color: #060d08 !important; }
 
 /* Main container */
 .main .block-container { padding-top: 1rem !important; max-width: 100% !important; }
@@ -87,9 +103,9 @@ footer { visibility: hidden; }
 
 /* === TYPOGRAPHY === */
 h1, h2, h3, h4, h5, h6 { color: #f1f5f9 !important; font-weight: 600; letter-spacing: -0.01em; }
-p, li { color: #94a3b8; line-height: 1.6; }
+p, li { color: #6b9e7e; line-height: 1.6; }
 strong, b { color: #e2e8f0 !important; }
-label { color: #94a3b8 !important; }
+label { color: #6b9e7e !important; }
 
 /* === WINDOWS-STYLE TASKBAR AT SCREEN BOTTOM === */
 .windows-taskbar {
@@ -100,16 +116,16 @@ label { color: #94a3b8 !important; }
     display: flex !important;
     justify-content: center !important;
     align-items: center !important;
-    background: #0f172a !important;
-    border-top: 1px solid #1e293b !important;
+    background: #060d08 !important;
+    border-top: 1px solid #1a3025 !important;
     padding: 8px 0 !important;
     z-index: 99999 !important;
     gap: 20px !important;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5) !important;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.6) !important;
 }
 .taskbar-icon-item {
     font-size: 1.25rem !important;
-    color: #94a3b8 !important;
+    color: #6b9e7e !important;
     cursor: pointer !important;
     position: relative !important;
     padding: 8px !important;
@@ -122,11 +138,10 @@ label { color: #94a3b8 !important; }
     height: 36px !important;
 }
 .taskbar-icon-item:hover {
-    background: rgba(255, 255, 255, 0.08) !important;
-    color: #38bdf8 !important;
+    background: rgba(34, 197, 94, 0.1) !important;
+    color: #22c55e !important;
     transform: translateY(-2px) !important;
 }
-/* Windows 11 style active underline indicator */
 .taskbar-icon-item::after {
     content: '' !important;
     position: absolute !important;
@@ -139,30 +154,30 @@ label { color: #94a3b8 !important; }
     transition: all 0.2s ease !important;
 }
 .taskbar-icon-item:hover::after {
-    background: #38bdf8 !important;
+    background: #22c55e !important;
 }
 .taskbar-icon-active {
-    color: #38bdf8 !important;
-    background: rgba(255, 255, 255, 0.04) !important;
+    color: #22c55e !important;
+    background: rgba(34, 197, 94, 0.06) !important;
 }
 .taskbar-icon-active::after {
-    background: #10b981 !important;
+    background: #f59e0b !important;
 }
 
 /* Pro Plan card */
 .pro-card {
-    background: linear-gradient(135deg, #1a2234, #131920);
-    border: 1px solid #2d3f55;
+    background: linear-gradient(135deg, #0f1e15, #0a1410);
+    border: 1px solid #1a3025;
     border-radius: 10px;
     padding: 13px 15px;
     margin: 10px 0;
 }
 .pro-label { color: #f59e0b !important; font-weight: 600; font-size: 0.85rem; }
-.pro-sub { color: #64748b !important; font-size: 0.78rem; line-height: 1.5; }
+.pro-sub { color: #4a7a5a !important; font-size: 0.78rem; line-height: 1.5; }
 
 /* === BUTTONS === */
 .stButton > button {
-    background: #2563eb !important;
+    background: linear-gradient(135deg, #15803d, #22c55e) !important;
     color: #ffffff !important;
     font-weight: 600 !important;
     border: none !important;
@@ -171,16 +186,16 @@ label { color: #94a3b8 !important; }
     font-size: 0.88rem !important;
 }
 .stButton > button:hover {
-    background: #3b82f6 !important;
-    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35) !important;
+    background: linear-gradient(135deg, #22c55e, #4ade80) !important;
+    box-shadow: 0 4px 15px rgba(34, 197, 94, 0.35) !important;
     transform: translateY(-1px) !important;
 }
 
 /* Quick action card-buttons */
 div[data-testid="column"] .stButton > button {
-    background: #1a2234 !important;
-    color: #94a3b8 !important;
-    border: 1px solid #252f40 !important;
+    background: #0f1e15 !important;
+    color: #6b9e7e !important;
+    border: 1px solid #1a3025 !important;
     font-weight: 450 !important;
     min-height: 95px;
     white-space: normal;
@@ -190,18 +205,18 @@ div[data-testid="column"] .stButton > button {
     box-shadow: none !important;
 }
 div[data-testid="column"] .stButton > button:hover {
-    background: #1e2a3a !important;
-    border-color: #2d3f55 !important;
+    background: #142119 !important;
+    border-color: #22c55e !important;
     color: #f1f5f9 !important;
-    box-shadow: none !important;
+    box-shadow: 0 0 0 1px rgba(34,197,94,0.2) !important;
     transform: none !important;
 }
 
 /* Bottom action pill-buttons */
 .action-pill .stButton > button {
-    background: #1a2234 !important;
-    color: #94a3b8 !important;
-    border: 1px solid #252f40 !important;
+    background: #0f1e15 !important;
+    color: #6b9e7e !important;
+    border: 1px solid #1a3025 !important;
     border-radius: 20px !important;
     font-size: 0.82rem !important;
     font-weight: 450 !important;
@@ -211,23 +226,23 @@ div[data-testid="column"] .stButton > button:hover {
     box-shadow: none !important;
 }
 .action-pill .stButton > button:hover {
-    background: #1e2a3a !important;
+    background: #142119 !important;
     color: #e2e8f0 !important;
-    border-color: #3b82f6 !important;
+    border-color: #22c55e !important;
     box-shadow: none !important;
     transform: none !important;
 }
 
 /* === DASHBOARD CARDS === */
 .dashboard-card {
-    background-color: #1a2234;
-    border: 1px solid #252f40;
+    background-color: #0f1e15;
+    border: 1px solid #1a3025;
     border-radius: 10px;
     padding: 18px;
     margin-bottom: 12px;
     transition: transform 0.15s ease, border-color 0.15s ease;
 }
-.dashboard-card:hover { border-color: #2d3f55; transform: translateY(-1px); }
+.dashboard-card:hover { border-color: #22c55e; transform: translateY(-1px); }
 
 /* === LIVE METRIC ROWS === */
 .live-metric-row {
@@ -235,37 +250,37 @@ div[data-testid="column"] .stButton > button:hover {
     justify-content: space-between;
     align-items: center;
     padding: 11px 0;
-    border-bottom: 1px solid #1e2a3a;
+    border-bottom: 1px solid #1a3025;
     font-size: 0.875rem;
 }
-.live-metric-label { color: #94a3b8; }
+.live-metric-label { color: #6b9e7e; }
 .live-metric-val { color: #e2e8f0; font-weight: 500; }
 
 /* === FORM INPUTS === */
 .stTextInput > div > div > input,
 .stTextArea > div > div > textarea,
 .stSelectbox > div > div {
-    background: #1a2234 !important;
+    background: #0f1e15 !important;
     color: #f1f5f9 !important;
-    border: 1px solid #252f40 !important;
+    border: 1px solid #1a3025 !important;
     border-radius: 8px !important;
 }
 .stTextInput > div > div > input:focus,
 .stTextArea > div > div > textarea:focus {
-    border-color: #4ade80 !important;
-    box-shadow: 0 0 0 2px rgba(74,222,128,0.15) !important;
+    border-color: #22c55e !important;
+    box-shadow: 0 0 0 2px rgba(34,197,94,0.15) !important;
 }
-[data-baseweb="select"] { background: #1a2234 !important; border-color: #252f40 !important; }
+[data-baseweb="select"] { background: #0f1e15 !important; border-color: #1a3025 !important; }
 
 /* === CHAT MESSAGES === */
 [data-testid="stChatMessageContent"] {
     background: transparent !important;
 }
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) .stMarkdown {
-    background: #1d3461;
+    background: #0d2018;
     border-radius: 10px 10px 2px 10px;
     padding: 10px 14px;
-    border: 1px solid #2d4a8a;
+    border: 1px solid #1a4030;
 }
 
 /* Modern chat bubbles */
@@ -274,17 +289,17 @@ div[data-testid="column"] .stButton > button:hover {
     padding: 0 !important;
 }
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) .stMarkdown > div {
-    background: linear-gradient(180deg,#0f172a,#122031); color:#e6f9ff; border-radius:12px; padding:12px 14px; border:1px solid rgba(58,138,255,0.12);
+    background: linear-gradient(180deg,#0a1a10,#0d2018); color:#c6ecd4; border-radius:12px; padding:12px 14px; border:1px solid rgba(34,197,94,0.12);
 }
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) .stMarkdown > div {
-    background: linear-gradient(180deg,#0b1220,#0d1624); color:#cfe8ff; border-radius:12px; padding:12px 14px; border:1px solid rgba(255,255,255,0.03);
+    background: linear-gradient(180deg,#071008,#0a150d); color:#a7c4b0; border-radius:12px; padding:12px 14px; border:1px solid rgba(255,255,255,0.03);
     margin-left: 20px !important;
 }
 
 /* Chat input area */
 [data-testid="stChatInput"] {
-    background: #0e1722 !important;
-    border: 1px solid #172432 !important;
+    background: #0a1410 !important;
+    border: 1px solid #1a3025 !important;
     border-radius: 14px !important;
     padding: 6px !important;
 }
@@ -295,31 +310,37 @@ div[data-testid="column"] .stButton > button:hover {
 
 /* === FILE UPLOADER === */
 [data-testid="stFileUploader"] {
-    background: #0e1722;
-    border: 2px dashed #172432;
+    background: #0a1410;
+    border: 2px dashed #1a3025;
     border-radius: 10px;
 }
 
-hr { border-color: #0f1b2a !important; }
+hr { border-color: #1a3025 !important; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #0d1117; }
-::-webkit-scrollbar-thumb { background: #25425a; border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+::-webkit-scrollbar-track { background: #060d08; }
+::-webkit-scrollbar-thumb { background: #1a4030; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #22c55e; }
 
-.stExpander { background: #0f1722; border-color: #172432 !important; border-radius: 12px; }
-.stSuccess { background: #052e16 !important; border-color: #4ade80 !important; color: #bbf7d0 !important; }
-.stError { background: #450a0a !important; border-color: #ef4444 !important; }
-.stWarning { background: #422006 !important; border-color: #f59e0b !important; }
-.stInfo { background: #0c1a3a !important; border-color: #3b82f6 !important; }
+.stExpander { background: #0a1410; border-color: #1a3025 !important; border-radius: 12px; }
+.stSuccess { background: #052e16 !important; border-color: #22c55e !important; color: #bbf7d0 !important; }
+.stError { background: #2d0a0a !important; border-color: #ef4444 !important; }
+.stWarning { background: #2d1a04 !important; border-color: #f59e0b !important; }
+.stInfo { background: #061428 !important; border-color: #3b82f6 !important; }
 
 /* Right panel metric cards */
 .metric-grid { display:grid; grid-template-columns: repeat(1, minmax(0,1fr)); gap:8px; }
-.metric-card { background: linear-gradient(180deg,#071428,#0b1624); border:1px solid #13202b; padding:12px; border-radius:10px; display:flex; align-items:center; gap:12px }
-.metric-icon { width:44px; height:44px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:#071a2a; color:#38bdf8; font-size:1.1rem }
+.metric-card { background: linear-gradient(180deg,#0a1a10,#0d2018); border:1px solid #1a3025; padding:12px; border-radius:10px; display:flex; align-items:center; gap:12px }
+.metric-icon { width:44px; height:44px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:#071008; color:#22c55e; font-size:1.1rem }
 .metric-body { flex:1 }
-.metric-label { color:#94a3b8; font-size:0.85rem }
-.metric-value { color:#e6f9ff; font-weight:700; font-size:1rem }
+.metric-label { color:#6b9e7e; font-size:0.85rem }
+.metric-value { color:#f1f5f9; font-weight:700; font-size:1rem }
+
+/* Highlight accent colours for data values */
+.jm-green  { color: #22c55e !important; }
+.jm-blue   { color: #3b82f6 !important; }
+.jm-gold   { color: #f59e0b !important; }
+.jm-white  { color: #f1f5f9 !important; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -329,21 +350,21 @@ st.markdown("""
 <style>
  .top-nav {
          display:flex; align-items:center; justify-content:space-between;
-         gap:12px;padding:10px 18px;border-bottom:1px solid #0f172a;background:linear-gradient(90deg,#071428,#0d1117);
+         gap:12px;padding:10px 18px;border-bottom:1px solid #1a3025;background:linear-gradient(90deg,#060d08,#0a1410);
          position:sticky;top:0;z-index:99998;
  }
  .top-nav .brand { display:flex; align-items:center; gap:12px }
- .brand .logo { width:42px; height:42px; border-radius:9px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#0ea5e9,#06b6d4); color:#021124; font-weight:700 }
+ .brand .logo-img { height:42px; width:auto; border-radius:8px; }
  .top-nav .actions { display:flex; gap:8px; align-items:center }
- .nav-pill { background:transparent; border:1px solid #1f2a38; color:#cbd5e1; padding:8px 12px; border-radius:8px; font-weight:600 }
- .nav-pill:hover { background:#0b1220; color:#e6f9ff }
+ .nav-pill { background:transparent; border:1px solid #1a3025; color:#6b9e7e; padding:8px 12px; border-radius:8px; font-weight:600; font-size:0.85rem; }
+ .nav-pill:hover { background:rgba(34,197,94,0.08); color:#22c55e; border-color:#22c55e; }
 </style>
 <div class="top-nav">
     <div class="brand">
-        <div class="logo">☀️</div>
+        <img class="logo-img" src="app/static/jmsolar_logo.png" alt="JMSolar.AI Logo" />
         <div style="line-height:1">
-            <div style="font-weight:700;color:#e6f9ff">Solar Design Agent</div>
-            <div style="font-size:0.82rem;color:#94a3b8">AI-assisted PV sizing & BOQ</div>
+            <div style="font-weight:700;color:#f1f5f9;font-size:1.05rem;"><span style="color:#ffffff;">JM</span><span style="color:#22c55e;">Solar</span><span style="color:#3b82f6;">.</span><span style="color:#3b82f6;">AI</span></div>
+            <div style="font-size:0.72rem;color:#f59e0b;letter-spacing:0.1em;font-weight:500;">AI-POWERED SOLAR DESIGN ENGINEER</div>
         </div>
     </div>
     <div class="actions">
@@ -542,11 +563,11 @@ with col_center:
     # Top Bar: Greeting
     st.markdown("""
     <div style="display:flex; align-items:center; gap:20px; margin-bottom: 20px;">
-        <div style="width:70px; height:70px; border-radius:50%; border:2px solid #38BDF8; display:flex; align-items:center; justify-content:center; background:#0F172A;">
-            <h1 style="margin:0; padding:0; font-size:1.8rem;">☀️</h1>
+        <div style="width:72px; height:72px; border-radius:50%; border:2px solid #10B981; display:flex; align-items:center; justify-content:center; background:#0F172A; overflow:hidden;">
+            <img src="app/static/jmsolar_logo.png" alt="JMSolar.AI" style="width:60px; height:60px; object-fit:contain;" />
         </div>
         <div>
-            <h2 style="margin:0; margin-bottom:4px;">Hello! I'm your <span style="color:#10B981;">Solar Design Agent.</span></h2>
+            <h2 style="margin:0; margin-bottom:4px;">Hello! I'm <span style="color:#10B981;">JMSolar</span><span style="color:#38BDF8;">.AI</span> &mdash; your Solar Design Engineer.</h2>
             <p style="margin:0;">Upload your site plan, electricity bill, or describe your project to begin.</p>
         </div>
     </div>

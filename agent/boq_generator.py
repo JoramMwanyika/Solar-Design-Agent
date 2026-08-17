@@ -625,6 +625,7 @@ def generate_sizing_and_design_workbook(
         ["Daily Energy Consumption", f"{sizing.get('daily_energy_kwh', 0):.2f} kWh/day", "Base load schedule requirement"],
         ["Design Target Energy (with losses)", f"{sizing.get('design_energy_kwh', 0):.2f} kWh/day", "Accounts for system losses and performance ratio"],
         ["Proposed DC Array Capacity", f"{sizing.get('total_pv_kwp', 0):.2f} kWp", f"Total PV array rating ({sizing.get('panel_qty', 0)} pcs x {sizing.get('panel_wp', 625)}Wp)"],
+        ["Proposed AC Capacity", f"{sizing.get('inverter', {}).get('ac_capacity_kw', 0):.2f} kW", "Target AC capacity sized as DC Capacity ÷ 1.25"],
         ["Proposed Inverter Size", f"{sizing.get('inverter', {}).get('kw', 0):.1f} kW / {sizing.get('inverter', {}).get('kva', 0):.1f} kVA", f"Quantity: {sizing.get('inverter', {}).get('qty', 1)} unit(s)"],
     ]
     if sys_type in ("off-grid", "hybrid"):

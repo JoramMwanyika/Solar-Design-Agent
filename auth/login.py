@@ -10,15 +10,18 @@ def render_login_page():
     """Renders the full login page. Sets st.session_state on success."""
     st.markdown("""
     <style>
+    body, .stApp { background-color: #060d08 !important; }
     .login-header { text-align: center; padding: 2rem 0 1rem; }
-    .login-card { max-width:520px; margin: 0 auto; background: linear-gradient(180deg,#071228,#0b1420); padding:22px; border-radius:12px; border:1px solid #13202b }
-    .login-header h1 { font-size: 2.0rem; color: #10B981; margin:0 }
-    .login-header p  { color: #94A3B8; font-size: 0.95rem; margin:6px 0 12px }
-    .login-note { color:#94A3B8; font-size:0.85rem; margin-top:8px }
+    .login-card { max-width:520px; margin: 0 auto; background: linear-gradient(180deg,#0a1410,#060d08); padding:22px; border-radius:12px; border:1px solid #1a3025 }
+    .login-header h1 { font-size: 2.0rem; margin:0 }
+    .login-header p  { color: #6b9e7e; font-size: 0.95rem; margin:6px 0 12px }
+    .login-note { color:#6b9e7e; font-size:0.85rem; margin-top:8px }
     </style>
     <div class="login-header">
-        <h1>☀️ Solar Design Agent</h1>
-        <p>AI-powered PV sizing, design & BOQ generation</p>
+        <img src="app/static/jmsolar_logo.png" alt="JMSolar.AI" style="height:100px; margin-bottom:10px;" />
+        <h1><span style="color:#ffffff;">JM</span><span style="color:#22c55e;">Solar</span><span style="color:#3b82f6;">.AI</span></h1>
+        <p style="letter-spacing:0.1em; font-size:0.78rem; color:#f59e0b; font-weight:600;">AI-POWERED SOLAR DESIGN ENGINEER</p>
+        <p>AI-powered PV sizing, design &amp; BOQ generation</p>
     </div>
     """, unsafe_allow_html=True)
 
