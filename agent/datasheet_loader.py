@@ -7,6 +7,7 @@ import os
 import glob
 from pathlib import Path
 from typing import List, Dict, Any
+import streamlit as st
 
 DATASHEETS_DIR = Path(__file__).parent.parent / "datasheets"
 
@@ -17,6 +18,7 @@ def ensure_datasheet_dirs():
     for sd in subdirs:
         (DATASHEETS_DIR / sd).mkdir(exist_ok=True)
 
+@st.cache_data
 def load_all_datasheets() -> Dict[str, Any]:
     """
     Scans `datasheets/` directory and returns a dictionary of loaded datasheets.

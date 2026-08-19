@@ -13,15 +13,6 @@ import agent.multiagent.state
 import agent.multiagent.agents
 import agent.multiagent.supervisor
 
-importlib.reload(agent.multiagent.tools.math_tools)
-importlib.reload(agent.multiagent.state)
-importlib.reload(agent.multiagent.agents)
-importlib.reload(agent.multiagent.supervisor)
-importlib.reload(agent.boq_generator)
-importlib.reload(agent.system_sizer)
-importlib.reload(agent.report_analyzer)
-importlib.reload(agent.orchestrator)
-
 from auth.login import require_login, render_sidebar_user
 from agent.orchestrator import SolarAgent
 from utils.file_parser import get_mime_type
@@ -30,10 +21,14 @@ from db.queries import (
     get_chat_sessions, update_chat_messages, save_design,
     get_designs_for_project, delete_chat_session
 )
-from utils.helpers import system_type_badge
+from utils.helpers import system_type_badge, get_logo_base64, get_logo_image
+
+# ── Load Logo Resources ──────────────────────
+logo_img = get_logo_image()
+logo_b64 = get_logo_base64()
 
 # ── Page config ──────────────────────────────
-st.set_page_config(page_title="JMSolar.AI", page_icon="static/jmsolar_logo.png", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="JMSolar.AI", page_icon=logo_img or "static/jmsolar_logo.png", layout="wide", initial_sidebar_state="expanded")
 
 # ── Auth guard ───────────────────────────────
 if not require_login():
@@ -359,9 +354,12 @@ st.markdown("""
  .nav-pill { background:transparent; border:1px solid #1a3025; color:#6b9e7e; padding:8px 12px; border-radius:8px; font-weight:600; font-size:0.85rem; }
  .nav-pill:hover { background:rgba(34,197,94,0.08); color:#22c55e; border-color:#22c55e; }
 </style>
+""", unsafe_allow_html=True)
+
+st.markdown(f"""
 <div class="top-nav">
     <div class="brand">
-        <img class="logo-img" src="app/static/jmsolar_logo.png" alt="JMSolar.AI Logo" />
+        <img class="logo-img" src="data:image/png;base64,{logo_b64}" alt="JMSolar.AI Logo" />
         <div style="line-height:1">
             <div style="font-weight:700;color:#f1f5f9;font-size:1.05rem;"><span style="color:#ffffff;">JM</span><span style="color:#22c55e;">Solar</span><span style="color:#3b82f6;">.</span><span style="color:#3b82f6;">AI</span></div>
             <div style="font-size:0.72rem;color:#f59e0b;letter-spacing:0.1em;font-weight:500;">AI-POWERED SOLAR DESIGN ENGINEER</div>
@@ -561,10 +559,10 @@ with col_center:
             render_admin_dashboard()
 
     # Top Bar: Greeting
-    st.markdown("""
+    st.markdown(f"""
     <div style="display:flex; align-items:center; gap:20px; margin-bottom: 20px;">
         <div style="width:72px; height:72px; border-radius:50%; border:2px solid #10B981; display:flex; align-items:center; justify-content:center; background:#0F172A; overflow:hidden;">
-            <img src="app/static/jmsolar_logo.png" alt="JMSolar.AI" style="width:60px; height:60px; object-fit:contain;" />
+            <img src="data:image/png;base64,{logo_b64}" alt="JMSolar.AI" style="width:60px; height:60px; object-fit:contain;" />
         </div>
         <div>
             <h2 style="margin:0; margin-bottom:4px;">Hello! I'm <span style="color:#10B981;">JMSolar</span><span style="color:#38BDF8;">.AI</span> &mdash; your Solar Design Engineer.</h2>

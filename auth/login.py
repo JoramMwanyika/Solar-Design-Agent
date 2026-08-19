@@ -8,6 +8,9 @@ from db.queries import get_profile
 
 def render_login_page():
     """Renders the full login page. Sets st.session_state on success."""
+    from utils.helpers import get_logo_base64
+    logo_b64 = get_logo_base64()
+
     st.markdown("""
     <style>
     body, .stApp { background-color: #060d08 !important; }
@@ -17,8 +20,11 @@ def render_login_page():
     .login-header p  { color: #6b9e7e; font-size: 0.95rem; margin:6px 0 12px }
     .login-note { color:#6b9e7e; font-size:0.85rem; margin-top:8px }
     </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"""
     <div class="login-header">
-        <img src="app/static/jmsolar_logo.png" alt="JMSolar.AI" style="height:100px; margin-bottom:10px;" />
+        <img src="data:image/png;base64,{logo_b64}" alt="JMSolar.AI" style="height:100px; margin-bottom:10px;" />
         <h1><span style="color:#ffffff;">JM</span><span style="color:#22c55e;">Solar</span><span style="color:#3b82f6;">.AI</span></h1>
         <p style="letter-spacing:0.1em; font-size:0.78rem; color:#f59e0b; font-weight:600;">AI-POWERED SOLAR DESIGN ENGINEER</p>
         <p>AI-powered PV sizing, design &amp; BOQ generation</p>
