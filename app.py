@@ -403,8 +403,9 @@ if "agent" not in st.session_state or getattr(st.session_state["agent"], "versio
         st.stop()
 agent: SolarAgent = st.session_state["agent"]
 
-user_id = st.session_state["user"].id
-projects = get_user_projects(user_id)
+user = st.session_state.get("user")
+user_id = user.id if user else None
+projects = get_user_projects(user_id) if user_id else []
 
 def save_current_project_state():
     proj_id = st.session_state.get("current_project_id")
