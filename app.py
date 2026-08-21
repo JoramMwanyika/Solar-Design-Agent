@@ -30,6 +30,25 @@ logo_b64 = get_logo_base64()
 # ── Page config ──────────────────────────────
 st.set_page_config(page_title="JMSolar.AI", page_icon=logo_img or "static/jmsolar_logo.png", layout="wide", initial_sidebar_state="expanded")
 
+# ── Handle Supabase Password Recovery (Hash Fragment) ──
+# Supabase sends auth tokens in the URL hash (e.g. #access_token=...&type=recovery)
+# Streamlit cannot read hash fragments on the server side. 
+# We inject a tiny JS script to convert the hash to query parameters and reload.
+st.markdown("""
+    <script>
+    if (window.location.hash && window.location.hash.includes("type=recovery")) {
+        const hash = window.location.hash.substring(1);
+        window.location.href = window.location.origin + window.location.pathname + "?" + hash;
+    }
+    </script>
+""", unsafe_allow_html=True)
+
+query_params = st.query_params
+if query_params.get("type") == "recovery" and "access_token" in query_params:
+    from auth.login import render_set_password_page
+    render_set_password_page(query_params["access_token"])
+    st.stop()
+
 # ── Auth guard ───────────────────────────────
 if not require_login():
     st.stop()
@@ -948,7 +967,7 @@ with col_right:
                 csv_loads, _ = extract_loads_from_dataframe(df)
                 if csv_loads:
                     with st.spinner(f"Sizing from {uploaded_file.name}..."):
-                        md, _ = agent.run_sizing(loads=csv_loads, location=loc, system_type=system_type)
+                        md, _ = agent.run_sizing(loads=csv_loads, location=loc)
                     st.session_state["messages"].append({"role": "user", "content": f"📎 *Uploaded {uploaded_file.name}*"})
                     st.session_state["messages"].append({"role": "assistant", "content": md})
                     save_current_project_state()

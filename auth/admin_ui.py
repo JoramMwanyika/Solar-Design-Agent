@@ -8,7 +8,8 @@ from auth.admin import (
     create_user,
     set_user_active,
     reset_user_password,
-    generate_temp_password
+    generate_temp_password,
+    send_password_reset_email,
 )
 
 
@@ -34,10 +35,10 @@ def render_admin_dashboard():
         users = []
 
     # ── Real-Time Account Monitoring Metrics ──
-    total_users = len(users)
-    active_users = sum(1 for u in users if u.get("is_active", True))
+    total_users      = len(users)
+    active_users     = sum(1 for u in users if u.get("is_active", True))
     deactivated_users = total_users - active_users
-    admin_users = sum(1 for u in users if u.get("role") == "admin")
+    admin_users      = sum(1 for u in users if u.get("role") == "admin")
 
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
     with col_m1:
@@ -53,7 +54,7 @@ def render_admin_dashboard():
 
     tab_monitor, tab_create = st.tabs([
         "📊 Active Accounts Monitor & Actions",
-        "➕ Create New User Credentials"
+        "➕ Create New User Credentials",
     ])
 
     # ── Tab 1: Active Accounts Monitor & Actions ──
@@ -62,18 +63,18 @@ def render_admin_dashboard():
         if not users:
             st.info("No registered user accounts found.")
         else:
-            # Display Summary Table
+            # Summary table
             table_data = []
             for u in users:
                 status_str = "✅ Active" if u.get("is_active", True) else "🔴 Deactivated"
-                role_str = "👑 Admin" if u.get("role") == "admin" else "👤 User"
+                role_str   = "👑 Admin"  if u.get("role") == "admin"  else "👤 User"
                 table_data.append({
-                    "User ID": str(u.get("id", ""))[:8] + "...",
-                    "Full Name": u.get("full_name", "N/A"),
-                    "Email": u.get("email", "N/A"),
-                    "Role": role_str,
-                    "Status": status_str,
-                    "Created At": str(u.get("created_at", ""))[:10]
+                    "User ID":    str(u.get("id", ""))[:8] + "...",
+                    "Full Name":  u.get("full_name", "N/A"),
+                    "Email":      u.get("email", "N/A"),
+                    "Role":       role_str,
+                    "Status":     status_str,
+                    "Created At": str(u.get("created_at", ""))[:10],
                 })
 
             import pandas as pd
@@ -82,21 +83,23 @@ def render_admin_dashboard():
 
             st.markdown("#### 🛠️ Account Actions & Management")
             for u in users:
-                u_id = u.get("id")
-                u_name = u.get("full_name", u.get("email", "User"))
+                u_id     = u.get("id")
+                u_name   = u.get("full_name", u.get("email", "User"))
+                u_email  = u.get("email", "")
                 is_active = u.get("is_active", True)
                 status_badge = "🟢 Active" if is_active else "🔴 Deactivated"
 
-                with st.expander(f"👤 {u_name} ({u.get('email', 'no-email')}) — {status_badge}"):
-                    c1, c2 = st.columns([1, 1])
+                with st.expander(f"👤 {u_name} ({u_email}) — {status_badge}"):
+                    c1, c2, c3 = st.columns([1, 1, 1])
 
+                    # ── Column 1: Status ─────────────────────────────────
                     with c1:
                         st.markdown(f"**Role:** `{u.get('role', 'user')}`")
-                        st.markdown(f"**Account Status:** `{status_badge}`")
+                        st.markdown(f"**Status:** `{status_badge}`")
                         st.markdown(f"**User ID:** `{u_id}`")
 
                         new_status = not is_active
-                        btn_label = "🔴 Deactivate Account" if is_active else "🟢 Activate Account"
+                        btn_label  = "🔴 Deactivate Account" if is_active else "🟢 Activate Account"
                         if st.button(btn_label, key=f"status_btn_{u_id}", use_container_width=True):
                             try:
                                 set_user_active(u_id, new_status)
@@ -106,9 +109,11 @@ def render_admin_dashboard():
                             except Exception as ex:
                                 st.error(f"Failed to update status: {ex}")
 
+                    # ── Column 2: Admin password reset ───────────────────
                     with c2:
-                        st.markdown("**🔑 Reset Account Password**")
-                        temp_pass = generate_temp_password(12)
+                        st.markdown("**🔑 Force-Reset Password**")
+                        st.caption("Set an immediate new password (no email required).")
+                        temp_pass    = generate_temp_password(12)
                         new_pwd_input = st.text_input("New Password", value=temp_pass, key=f"pwd_in_{u_id}")
                         if st.button("🔄 Update Password", key=f"pwd_btn_{u_id}", use_container_width=True):
                             try:
@@ -117,19 +122,58 @@ def render_admin_dashboard():
                             except Exception as ex:
                                 st.error(f"Password reset failed: {ex}")
 
+                    # ── Column 3: Email-based password reset ─────────────
+                    with c3:
+                        st.markdown("**📧 Send Password-Reset Email**")
+                        st.caption(
+                            "Sends a secure reset link to the client's email. "
+                            "They click the link and set their own password — "
+                            "no temp password sharing needed."
+                        )
+                        if u_email and "@" in u_email:
+                            if st.button(
+                                "📬 Send Reset Link",
+                                key=f"email_reset_btn_{u_id}",
+                                use_container_width=True,
+                                type="primary",
+                            ):
+                                result = send_password_reset_email(u_email)
+                                if result.get("ok"):
+                                    st.success(
+                                        f"✅ Password-reset email sent to **{u_email}**!\n\n"
+                                        f"The client will receive a link valid for **1 hour**."
+                                    )
+                                else:
+                                    st.error(f"Failed to send email: {result.get('error')}")
+                        else:
+                            st.warning("No valid email on file.")
+
     # ── Tab 2: Create New User Credentials ──
     with tab_create:
         st.markdown("### ➕ Provision New User Credentials")
-        st.markdown("Create a new user account with email and password credentials.")
+
+        method = st.radio(
+            "Onboarding Method",
+            [
+                "🔑 Create with Temporary Password (share credentials manually)",
+                "📧 Create & Send Password-Reset Email (client sets their own password)",
+            ],
+            index=1,
+            help="The email method is more secure — the client never sees a temporary password.",
+        )
 
         with st.form("create_user_form", clear_on_submit=False):
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                new_name = st.text_input("Full Name", placeholder="e.g. Jane Doe")
+                new_name  = st.text_input("Full Name", placeholder="e.g. Jane Doe")
                 new_email = st.text_input("Email Address", placeholder="jane@company.com")
             with col_f2:
-                default_temp = generate_temp_password(12)
-                new_password = st.text_input("Initial Password", value=default_temp, help="You can edit or auto-generate")
+                default_temp = generate_temp_password(14)
+                new_password = st.text_input(
+                    "Initial Password",
+                    value=default_temp,
+                    help="Required by Supabase to create the account. If using the email method the client will override this.",
+                )
                 new_role = st.selectbox("Assign Role", ["user", "admin"], index=0)
 
             submitted_create = st.form_submit_button("🚀 Create User Credentials", use_container_width=True)
@@ -140,8 +184,32 @@ def render_admin_dashboard():
                 else:
                     try:
                         created = create_user(new_name, new_email, new_password, new_role)
-                        st.success(f"✅ User credentials created successfully for **{new_name}**!")
-                        st.info(f"**Email:** `{new_email}`\n\n**Password:** `{new_password}`\n\n**Role:** `{new_role.upper()}`")
+                        st.success(f"✅ Account created for **{new_name}** (`{new_email}`)")
+
+                        use_email_method = "Email" in method
+                        if use_email_method:
+                            result = send_password_reset_email(new_email)
+                            if result.get("ok"):
+                                st.info(
+                                    f"📧 **Password-reset email sent to `{new_email}`.**\n\n"
+                                    f"The client will receive a secure link to set their own password. "
+                                    f"The link is valid for **1 hour**.\n\n"
+                                    f"*(The temporary password `{new_password}` was used internally to "
+                                    f"create the account — you do **not** need to share it.)*"
+                                )
+                            else:
+                                st.warning(
+                                    f"Account created but the reset email failed: {result.get('error')}\n\n"
+                                    f"You can manually send the reset email from the Accounts tab."
+                                )
+                        else:
+                            st.info(
+                                f"**Share these credentials with the client:**\n\n"
+                                f"- **Email:** `{new_email}`\n"
+                                f"- **Password:** `{new_password}`\n"
+                                f"- **Role:** `{new_role.upper()}`\n\n"
+                                f"*Tip: Ask the client to change their password after first login.*"
+                            )
                         st.rerun()
                     except Exception as ex:
                         st.error(f"⚠️ Failed to create user: {ex}")

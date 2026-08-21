@@ -80,6 +80,21 @@ def render_login_page():
                 else:
                     st.error(f"Login error: {err}")
 
+        # ── Forgot Password link ──────────────────────────────────────────
+        st.markdown(
+            "<div style='text-align:right; margin-top:-6px; margin-bottom:10px;'>"
+            "<a href='?page=forgot_password' style='color:#22c55e; font-size:0.85rem; text-decoration:none;'>"
+            "🔑 Forgot your password?</a></div>",
+            unsafe_allow_html=True,
+        )
+        # Streamlit workaround: show the forgot-password flow inline if selected
+        if st.session_state.get("_show_forgot_pw"):
+            _render_forgot_password_inline()
+        else:
+            if st.button("🔑 Forgot / Change Password", use_container_width=False, key="btn_forgot_pw"):
+                st.session_state["_show_forgot_pw"] = True
+                st.rerun()
+
         st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
         col_g1, col_g2 = st.columns(2)
         with col_g1:
@@ -110,6 +125,100 @@ def render_login_page():
         """, unsafe_allow_html=True)
 
 
+def _render_forgot_password_inline():
+    """
+    Inline 'Forgot Password' panel shown beneath the login form.
+    Sends a Supabase password-reset email to the client's address.
+    """
+    st.markdown("---")
+    st.markdown("#### 📧 Send Password Reset Email")
+    st.caption(
+        "Enter your registered email address. You'll receive a secure link "
+        "to set a new password — valid for 1 hour."
+    )
+    fp_email = st.text_input("Your email address", placeholder="you@company.com", key="fp_email_input")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📬 Send Reset Link", key="send_reset_btn", use_container_width=True, type="primary"):
+            if not fp_email:
+                st.error("Please enter your email address.")
+            else:
+                from auth.admin import send_password_reset_email
+                result = send_password_reset_email(fp_email)
+                if result.get("ok"):
+                    st.success(
+                        f"✅ A password-reset link has been sent to **{fp_email}**.\n\n"
+                        "Check your inbox (and spam folder) and click the link to set a new password."
+                    )
+                    st.session_state.pop("_show_forgot_pw", None)
+                else:
+                    st.error(f"Could not send email: {result.get('error')}")
+    with c2:
+        if st.button("✖ Cancel", key="cancel_forgot_btn", use_container_width=True):
+            st.session_state.pop("_show_forgot_pw", None)
+            st.rerun()
+
+
+def render_set_password_page(access_token: str):
+    """
+    Shown when the user arrives via a Supabase password-reset link.
+    The URL contains `access_token` and `type=recovery` as fragments
+    (Streamlit exposes them via st.query_params after the JS redirect).
+    """
+    from utils.helpers import get_logo_base64
+    logo_b64 = get_logo_base64()
+
+    st.markdown("""
+    <style>
+    body, .stApp { background-color: #060d08 !important; }
+    .login-header { text-align: center; padding: 2rem 0 1rem; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div class="login-header">
+        <img src="data:image/png;base64,{logo_b64}" alt="JMSolar.AI" style="height:80px; margin-bottom:10px;" />
+        <h2 style="color:#22c55e;">Set Your New Password</h2>
+        <p style="color:#6b9e7e;">Choose a strong password for your JMSolar.AI account.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1.4, 1])
+    with col2:
+        with st.form("set_password_form", clear_on_submit=False):
+            st.markdown("### 🔒 Create New Password")
+            new_pw  = st.text_input("New Password",     type="password", placeholder="Min. 8 characters")
+            conf_pw = st.text_input("Confirm Password", type="password", placeholder="Repeat your password")
+            submitted = st.form_submit_button("✅ Save New Password", use_container_width=True)
+
+        if submitted:
+            if not new_pw or not conf_pw:
+                st.error("Please fill in both password fields.")
+            elif new_pw != conf_pw:
+                st.error("Passwords do not match. Please try again.")
+            elif len(new_pw) < 8:
+                st.error("Password must be at least 8 characters long.")
+            else:
+                from auth.admin import update_user_password
+                result = update_user_password(new_pw, access_token)
+                if result.get("ok"):
+                    st.success(
+                        "✅ **Password updated successfully!** "
+                        "You can now log in with your new password."
+                    )
+                    # Clear the recovery state
+                    for k in ["_recovery_token", "_recovery_type"]:
+                        st.session_state.pop(k, None)
+                    st.balloons()
+                    if st.button("Go to Login →", use_container_width=True):
+                        st.rerun()
+                else:
+                    st.error(
+                        f"Failed to update password: {result.get('error')}\n\n"
+                        "The reset link may have expired. Please request a new one."
+                    )
+
+
 def render_sidebar_user():
     """Renders the user info block + logout button in the sidebar."""
     profile = st.session_state.get("profile", {})
@@ -128,8 +237,63 @@ def render_sidebar_user():
     </div>
     """, unsafe_allow_html=True)
 
+    # Change password shortcut for logged-in users
+    if st.sidebar.button("🔑 Change Password", use_container_width=True, key="sb_change_pw"):
+        st.session_state["_show_change_pw_sidebar"] = True
+        st.rerun()
+
+    if st.session_state.get("_show_change_pw_sidebar"):
+        _render_sidebar_change_password()
+
     if st.sidebar.button("🚪 Logout", use_container_width=True):
         _logout()
+
+
+def _render_sidebar_change_password():
+    """
+    Renders an inline password change form in the sidebar.
+    Logged in users can update their password directly.
+    """
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**🔑 Change Password**")
+    
+    with st.sidebar.form("sb_change_pw_form", clear_on_submit=True):
+        new_pw = st.text_input("New Password", type="password", placeholder="Min. 8 characters")
+        conf_pw = st.text_input("Confirm Password", type="password")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            submitted = st.form_submit_button("✅ Save", use_container_width=True)
+        with c2:
+            cancel = st.form_submit_button("✖ Cancel", use_container_width=True)
+            
+        if cancel:
+            st.session_state.pop("_show_change_pw_sidebar", None)
+            st.rerun()
+            
+        if submitted:
+            if not new_pw or not conf_pw:
+                st.error("Please fill in both fields.")
+            elif new_pw != conf_pw:
+                st.error("Passwords do not match.")
+            elif len(new_pw) < 8:
+                st.error("Minimum 8 characters.")
+            else:
+                try:
+                    from auth.supabase_client import get_client
+                    client = get_client()
+                    # Ensure the client is authenticated with the current session
+                    access_token = st.session_state.get("access_token")
+                    if access_token:
+                        client.auth.set_session(access_token, "")
+                        client.auth.update_user({"password": new_pw})
+                        st.success("✅ Password updated!")
+                        st.session_state.pop("_show_change_pw_sidebar", None)
+                    else:
+                        st.error("Session expired. Please log in again.")
+                except Exception as e:
+                    st.error(f"Failed to update: {e}")
+    st.sidebar.markdown("---")
 
 
 def _logout():
@@ -139,7 +303,9 @@ def _logout():
     except Exception:
         pass
     for key in ["user", "profile", "access_token", "is_admin",
-                "messages", "current_project_id", "current_session_id"]:
+                "messages", "current_project_id", "current_session_id",
+                "_show_forgot_pw", "_show_change_pw_sidebar",
+                "_recovery_token", "_recovery_type"]:
         st.session_state.pop(key, None)
     st.rerun()
 
